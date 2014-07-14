@@ -50,12 +50,14 @@ type Card struct {
 	DrawFromDiscardPower int // we use an int instead of a bool so we can count multiple instances of the power
 	TrashBonus int
 	DrawBonus int
+	AttackBonus int
 	Rule string
 }
 
 func (c Card)String() string{
     return fmt.Sprintf("%s(%s %d : %s)", c.Name, cardType[c.Kind], c.Cost, materials[c.Material])
 }
+
 
 func (hand *Hand) RemoveCard(pos int, pile *Hand) {
 	// move the card somewhere else if given
@@ -68,6 +70,16 @@ func (hand *Hand) RemoveCard(pos int, pile *Hand) {
 	(*hand).Count--
 }
 
+
+func (tableau *Tableau) RemoveFromStorage(pos int, pile *Hand) {
+	// move the card somewhere else if given
+	if pile != nil {
+		(*pile).Cards[(*pile).PullPos + 1] = (*tableau).Storage[pos]
+		(*pile).PullPos += 1
+	}
+	// remove the card from the hand
+	(*tableau).Storage[pos] = nil
+}
 
 /* 
  I'm storing a "hand", which is a collection of cards, by pointing to the canonical card
@@ -132,6 +144,7 @@ func (from *Hand) RandomPull(pullCount int, receiving *Hand) {
 
 type Tableau struct {
 	Stack map[int]*Hand
+	Storage map[int] *Card
 	Discounts []int
 	Fill int // keep track of how filled the tableau is
 	VictoryPoints int
@@ -139,6 +152,7 @@ type Tableau struct {
 	DrawFromDiscardPower int
 	TrashBonus int
 	DrawBonus int
+	AttackBonus int
 }
 
 func (t Tableau)String() string{
@@ -171,6 +185,7 @@ func (tableau *Tableau) RemoveTop(kind int, hand *Hand) {
 	(*tableau).DrawBonus -= (*tableau).Stack[kind].Cards[top].DrawBonus
 	(*tableau).TrashBonus -= (*tableau).Stack[kind].Cards[top].TrashBonus
 	(*tableau).DrawFromDiscardPower -= (*tableau).Stack[kind].Cards[top].DrawFromDiscardPower
+	(*tableau).AttackBonus -= (*tableau).Stack[kind].Cards[top].AttackBonus
 	(*tableau).Stack[kind].Cards[top] = nil
 	top--
 
@@ -188,59 +203,60 @@ func (tableau *Tableau) RemoveTop(kind int, hand *Hand) {
 		(*tableau).DrawBonus += (*tableau).Stack[kind].Cards[top].DrawBonus
 		(*tableau).TrashBonus += (*tableau).Stack[kind].Cards[top].TrashBonus
 		(*tableau).DrawFromDiscardPower += (*tableau).Stack[kind].Cards[top].DrawFromDiscardPower
+		(*tableau).AttackBonus += (*tableau).Stack[kind].Cards[top].AttackBonus
 	}
 }
 
 
 var Deck = []Card{
-	{"Fowlery", 1, Farm, Wood, 0, []int{0,0,0,-1}, 0, 0, 0, 0,"-1 to recruit soldier"},
-	{"Pig Farm", 2, Farm, Wood, 0, []int{0,0,0,-2}, 0, 0, 0, 0,"-2 to recruit soldier"},
-	{"Cow fields", 3, Farm, Wood, 0, []int{0,0,0,-3}, 0, 0, 0, 0,"-3 to recruit soldier"},
-	{"Manor", 4, Farm, Wood, 1, []int{0,0,0,-4}, 0, 0, 0, 0,"-4 to recruit soldier; +1 VP"},
+	{"Fowlery", 1, Farm, Wood, 0, []int{0,0,0,-1}, 0, 0, 0, 0, 0, "-1 to recruit soldier"},
+	{"Pig Farm", 2, Farm, Wood, 0, []int{0,0,0,-2}, 0, 0, 0, 0, 0, "-2 to recruit soldier"},
+	{"Cow fields", 3, Farm, Wood, 0, []int{0,0,0,-3}, 0, 0, 0, 0, 0, "-3 to recruit soldier"},
+	{"Manor", 4, Farm, Wood, 1, []int{0,0,0,-4}, 0, 0, 0, 0, 0, "-4 to recruit soldier; +1 VP"},
 
-	{"Trading Post", 1, Market, Wood, 0, []int{0,0,0,0}, 0, 1, 0, 0, "may draw from discard pile"},
-	{"Bazaar", 2, Market, Wood, 0, []int{0,0,0,0}, 0, 1, 1, 0, "may draw from discard pile; may trash 1"},
-	{"Exchange", 3, Market, Wood, 0, []int{0,0,0,0}, 0, 1, 1, 1, "may draw from discard pile; trash 1 to draw 1"},
-	{"Faire", 4, Market, Wood, 1, []int{0,0,0,0}, 0, 1, 1, 2, "may draw from discard pile; trash 1 to draw 2; +1 VP"},
+	{"Trading Post", 1, Market, Wood, 0, []int{0,0,0,0}, 0, 1, 0, 0, 0, "may draw from discard pile"},
+	{"Bazaar", 2, Market, Wood, 0, []int{0,0,0,0}, 0, 1, 1, 0, 0, "may draw from discard pile; may trash 1"},
+	{"Exchange", 3, Market, Wood, 0, []int{0,0,0,0}, 0, 1, 1, 1, 0, "may draw from discard pile; trash 1 to draw 1"},
+	{"Faire", 4, Market, Wood, 1, []int{0,0,0,0}, 0, 1, 1, 2, 0, "may draw from discard pile; trash 1 to draw 2; +1 VP"},
 
 	// Storage is 4 spaces.  Cards in storage may only be built, not discarded or trashed.  If storage card is raided, all storage goes with it
-	{"Shed", 1, Storage, Wood, 0, []int{0,0,0,0}, 0, 0, 0, 0, "fill in storage space 1; may put card in open storage spaces"},
-	{"Warehouse", 2, Storage, Wood, 0, []int{0,0,0,0}, 0, 0, 0, 0, "fill in open storage spaces up to 2; may put card in open storage spaces"}, 
-	{"Storehouse", 3, Storage, Wood, 0, []int{0,0,0,0}, 0, 0, 0, 0, "fill in open storage spaces up to 3; may put card in open storage spaces"},
-	{"Vaults", 4, Storage, Wood, 1, []int{0,0,0,0}, 0, 0, 0, 0, "fill in open storage spaces up to 4; may put card in open storage spaces; +1 VP"},
+	{"Shed", 1, Storage, Wood, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "fill in storage space 1 from hand, draw or discard; may play that card but don't refill"},
+	{"Warehouse", 2, Storage, Wood, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "refill storage spot 1 only if it's open"}, 
+	{"Storehouse", 3, Storage, Wood, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "fill in storage space 2 from hand, draw or discard; may play that card but don't refill"},
+	{"Vaults", 4, Storage, Wood, 1, []int{0,0,0,0}, 0, 0, 0, 0, 0, "refill any open storage; +1 VP"},
 
-	{"Sawmill", 1, Supply, Metal, 0, []int{-1,0,0,0}, 0, 0, 0, 0, "-1 to build Wood card"},
-	{"Mine", 2, Supply, Metal, 0, []int{0,-1,0,0}, 0, 0, 0, 0, "-1 to build metal card"},
-	{"Quarry", 3, Supply, Metal, 0, []int{0,0,-1,0}, 0, 0, 0, 0, "-1 to build stone card"},
-	{"Gold stream", 4, Supply, Metal, 1, []int{-1,-1,-1,0}, 0, 0, 0, 0, "-1 to build any card with a resource type, +1 VP"},
+	{"Sawmill", 1, Supply, Metal, 0, []int{-1,0,0,0}, 0, 0, 0, 0, 0, "-1 to build Wood card"},
+	{"Mine", 2, Supply, Metal, 0, []int{0,-1,0,0}, 0, 0, 0, 0, 0, "-1 to build metal card"},
+	{"Quarry", 3, Supply, Metal, 0, []int{0,0,-1,0}, 0, 0, 0, 0, 0, "-1 to build stone card"},
+	{"Gold stream", 4, Supply, Metal, 1, []int{-1,-1,-1,0}, 0, 0, 0, 0, 0, "-1 to build any card with a resource type, +1 VP"},
 
-	{"Carpentery", 1, Manufacturing, Metal, 0, []int{-1,0,0,0}, 0, 0, 0, 0, "-1 cost to build Wood card"},
-	{"Blacksmith", 2, Manufacturing, Metal, 0, []int{0,-1,0,0}, 0, 0, 0, 0, "-1 cost to build metal card"},
-	{"Mason", 3, Manufacturing, Metal, 0, []int{0,0,-1,0}, 0, 0, 0, 0, "-1 cost to build stone card"},
-	{"Bank", 4, Manufacturing, Metal, 1, []int{-1,-1,-1,0}, 0, 0, 0, 0, "-1 cost to build any card with a resource type; + 1 VP"},
+	{"Carpentery", 1, Manufacturing, Metal, 0, []int{-1,0,0,0}, 0, 0, 0, 0, 0, "-1 cost to build Wood card"},
+	{"Blacksmith", 2, Manufacturing, Metal, 0, []int{0,-1,0,0}, 0, 0, 0, 0, 0, "-1 cost to build metal card"},
+	{"Mason", 3, Manufacturing, Metal, 0, []int{0,0,-1,0}, 0, 0, 0, 0, 0, "-1 cost to build stone card"},
+	{"Bank", 4, Manufacturing, Metal, 1, []int{-1,-1,-1,0}, 0, 0, 0, 0, 0, "-1 cost to build any card with a resource type; + 1 VP"},
 
-	{"Armory", 1, Military, Metal, 0, []int{0,0,0,0}, 0, 0, 0, 0, "Allows recruiting soldier up to level 1"},
-	{"Garrison", 2, Military, Metal, 0, []int{0,0,0,0}, 0, 0, 0, 0, "Allows recruiting soldier up to level 2"},
-	{"Barrack", 3, Military, Metal, 0, []int{0,0,0,0}, 0, 0, 0, 0, "Allows recruiting soldier up to level 3"},
-	{"Fort", 4, Military, Metal, 1, []int{0,0,0,0}, 0, 0, 0, 0, "Allows recruiting soldier up to level 4; +1 VP"},
+	{"Armory", 1, Military, Metal, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Allows recruiting soldier up to level 1"},
+	{"Garrison", 2, Military, Metal, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Allows recruiting soldier up to level 2"},
+	{"Barrack", 3, Military, Metal, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Allows recruiting soldier up to level 3"},
+	{"Fort", 4, Military, Metal, 1, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Allows recruiting soldier up to level 4; +1 VP"},
 
-	{"Walls", 1, Defensive, Stone, 0, []int{0,0,0,0}, 0, 0, 0, 0, "Protects all other buildings, may be taken by level 1 soldier"},
-	{"Tower", 2, Defensive, Stone, 0, []int{0,0,0,0}, 0, 0, 0, 0, "Protects all other buildings, may be taken by level 2 soldier"},
-	{"Keep", 3, Defensive, Stone, 0, []int{0,0,0,0}, 0, 0, 0, 0, "Protects all other buildings, may be taken by level 3 soldier"},
-	{"Castle", 4, Defensive, Stone, 1, []int{0,0,0,0}, 0, 0, 0, 0, "Protects all other buildings, may be taken by level 4 soldier; +1 VP"},
+	{"Walls", 1, Defensive, Stone, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Protects all other buildings, may be taken by level 1 soldier"},
+	{"Tower", 2, Defensive, Stone, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Protects all other buildings, may be taken by level 2 soldier"},
+	{"Keep", 3, Defensive, Stone, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Protects all other buildings, may be taken by level 3 soldier"},
+	{"Castle", 4, Defensive, Stone, 1, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Protects all other buildings, may be taken by level 4 soldier; +1 VP"},
 
-	{"Chapel", 1, Civic, Stone, 1, []int{0,0,0,0}, 0, 0, 0, 0, "+1 VP"},
-	{"Church", 2, Civic, Stone, 2, []int{0,0,0,0}, 0, 0, 0, 0, "+2 VP"},
-	{"Town Hall", 3, Civic, Stone, 3, []int{0,0,0,0}, 0, 0, 0, 0, "+3 VP"},
-	{"Cathedral", 4, Civic, Stone, 4, []int{0,0,0,0}, 0, 0, 0, 0, "+4 VP"},
+	{"Chapel", 1, Civic, Stone, 1, []int{0,0,0,0}, 0, 0, 0, 0, 0, "+1 VP"},
+	{"Church", 2, Civic, Stone, 2, []int{0,0,0,0}, 0, 0, 0, 0, 0, "+2 VP"},
+	{"Town Hall", 3, Civic, Stone, 3, []int{0,0,0,0}, 0, 0, 0, 0, 0, "+3 VP"},
+	{"Cathedral", 4, Civic, Stone, 4, []int{0,0,0,0}, 0, 0, 0, 0, 0, "+4 VP"},
 
-	{"Novice", 1, School, Stone, 0, []int{0,0,0,0}, 1, 0, 0, 0, "+1 build"},
-	{"Adept", 2, School, Stone, 0, []int{0,0,0,0}, 1, 0, 0, 0, "+1 build; +1 to Attack"},
-	{"Mage", 3, School, Stone, 0, []int{0,0,0,0}, 2, 0, 0, 0, "+2 builds; +1 to Attack"},
-	{"Wizard", 4, School, Stone, 1, []int{0,0,0,0}, 2, 0, 0, 0, "+2 builds; +2 to Attack; +1 VP"},
+	{"Novice", 1, School, Stone, 0, []int{0,0,0,0}, 1, 0, 0, 0, 0, "+1 build"},
+	{"Adept", 2, School, Stone, 0, []int{0,0,0,0}, 1, 0, 0, 0, 1, "+1 build; +1 to Attack"},
+	{"Mage", 3, School, Stone, 0, []int{0,0,0,0}, 2, 0, 0, 0, 1, "+2 builds; +1 to Attack"},
+	{"Wizard", 4, School, Stone, 1, []int{0,0,0,0}, 2, 0, 0, 0, 2, "+2 builds; +2 to Attack; +1 VP"},
 	
-	{"Town Watch", 1, Soldiers, Soldier, 0, []int{0,0,0,0}, 0, 0, 0, 0, "Only build if right military building built.  Optional: may take opponent card up to 1, may -1 opponent attack; trash after use"},
-	{"Archers", 2, Soldiers, Soldier, 0, []int{0,0,0,0}, 0, 0, 0, 0, "Only build if right military building built.  Optional: may take opponent card up to 2, may -2 opponent attack; trash after use"},
-	{"Militia", 3, Soldiers, Soldier, 0, []int{0,0,0,0}, 0, 0, 0, 0, "Only build if right military building built.  Optional: may take opponent card up to 3, may -3 opponent attack; trash after use"},
-	{"Knights", 4, Soldiers, Soldier, 1, []int{0,0,0,0}, 0, 0, 0, 0, "Only build if right military building built.  Optional: may take opponent card up to 4, may -4 opponent attack; trash after use; +1 VP"},
+	{"Town Watch", 1, Soldiers, Soldier, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Only build if right military building built.  Optional: may take opponent card up to 1, may -1 opponent attack; trash after use"},
+	{"Archers", 2, Soldiers, Soldier, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Only build if right military building built.  Optional: may take opponent card up to 2, may -2 opponent attack; trash after use"},
+	{"Militia", 3, Soldiers, Soldier, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Only build if right military building built.  Optional: may take opponent card up to 3, may -3 opponent attack; trash after use"},
+	{"Knights", 4, Soldiers, Soldier, 1, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Only build if right military building built.  Optional: may take opponent card up to 4, may -4 opponent attack; trash after use; +1 VP"},
 }
