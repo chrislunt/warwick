@@ -98,7 +98,6 @@ func (player Player) ChooseBuild(phase int) (buildPos int, cost int, upgrade boo
 
 
 func (player Player) ChooseDiscards(protected int, cost int, phase int) (discards []int) {
-// TODO: discard from storage: change the expression of discards to include the discards from storage as well
 	// Consider if you'd rather use your stored cards.  You may value them differently, especially if you have
 	// an upgrade for your storage that may refill the spot.  To not get too complicated, let's just compare
 	// on the basis of the raw value, and if any of the stored cards are less than the card in the hand,
@@ -205,7 +204,6 @@ func (player Player) CardValue(thiscard *card.Card, phase int) (value int) {
 
 
 func (player *Player) Build(buildPos int, discards []int, discardPile *card.Hand, upgrade bool) {
-	// TODO: discards needs to change to include the storage
 	buildCard := (*player).CardByPos(buildPos)
 	kind := buildCard.Kind
 	if (*player).Tableau.Stack[kind] == nil { // initialize
