@@ -142,6 +142,30 @@ func (from *Hand) RandomPull(pullCount int, receiving *Hand) {
 }
 
 
+// TODO: this is inconsistant with the way I'm managing the stock.  Seems like we should be able to combine these two
+func (from *Hand) TopPull(pullCount int, receiving *Hand) {
+	for	placePos := 0; placePos < (*receiving).Max; placePos++ { // the first spot in the receiving hand
+		if (*receiving).Count >= (*receiving).Limit {
+			break;
+		}
+		if ((*receiving).Cards[placePos] == nil) {
+//fmt.Println("Stock pull", (*from).PullPos)
+			if (*from).PullPos >= len((*from).Cards) {
+				return
+			}
+			(*receiving).Cards[placePos] = (*from).Cards[(*from).PullPos] // pull from the current pull position in the from
+			(*from).PullPos-- // a new card is the top of the from
+			(*receiving).Count++
+			pullCount--
+			if (pullCount == 0) {
+				return
+			}
+		}
+	}
+
+}
+
+
 type Tableau struct {
 	Stack map[int]*Hand
 	Storage map[int] *Card

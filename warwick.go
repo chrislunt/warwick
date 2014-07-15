@@ -74,7 +74,7 @@ import (
 	"github.com/chrislunt/warwick/player"
 )
 
-var logLevel = 1
+var logLevel = 2
 
 func log(level int, message string) {
 	if logLevel >= level { 
@@ -95,7 +95,7 @@ func turnToPhase(turn int) (phase int) {
 }
 
 
-func store(storePower int, stock *card.Hand, discardPile *card.Hand, player *player.Player) {
+func store(storePower int, stock *card.Hand, discardPile *card.Hand, player *player.Player, phase int) {
 	var topSpot int
 	switch {
 	case storePower == 1 || storePower == 2:
@@ -109,7 +109,7 @@ func store(storePower int, stock *card.Hand, discardPile *card.Hand, player *pla
 	}
 	for spot := 0; spot <= topSpot; spot++ {
 		if (*player).Tableau.Storage[spot] == nil {
-			storeCard := chooseStore(stock, discardPile, player)
+			storeCard := chooseStore(stock, discardPile, player, phase)
 			log(1, fmt.Sprintf("Stored in storage %d: %s", spot, storeCard))
 			(*player).Tableau.Storage[spot] = storeCard
 		}
@@ -118,12 +118,25 @@ func store(storePower int, stock *card.Hand, discardPile *card.Hand, player *pla
 
 
 // Choose from the hand, stock and discard pile, remove the card from the source, and pass it back
-func chooseStore(stock *card.Hand, discardPile *card.Hand, player *player.Player) (chosen *card.Card) {
-	// TODO: need to choose
-	chosen = (*stock).Cards[(*stock).PullPos] // pull from the current pull position in the stock
-	(*stock).PullPos++ 
-//	player.Tableau.Storage[spot] = (*player).Hand.Cards[highCardPos]
-//	(*player).Hand.RemoveCard(highCardPos, nil)
+func chooseStore(stock *card.Hand, discardPile *card.Hand, player *player.Player, phase int) (chosen *card.Card) {
+	// if the best card in the discard or hand is less than 31, just draw from the stock
+	discardValue := player.CardValue(discardPile.Cards[discardPile.PullPos], phase) 
+	handPos, handValue := player.HighestValueCard(phase, nil)
+	if (discardValue < 32) && (handValue < 32) {
+		// draw from the stock
+		log(1, fmt.Sprintf("Player fills storage from Stock: %s", (*stock).Cards[(*stock).PullPos]))
+		chosen = (*stock).Cards[(*stock).PullPos] // pull from the current pull position in the stock
+		(*stock).PullPos++ 
+	} else if (discardValue < handValue) {
+		// draw from the hand
+		log(1, fmt.Sprintf("Player fills storage from Hand: %s", (*player).Hand.Cards[handPos]))
+		chosen = (*player).Hand.Cards[handPos]
+		(*player).Hand.RemoveCard(handPos, nil)
+	} else {
+		log(1, fmt.Sprintf("Player fills storage from Discard: %s", discardPile.Cards[discardPile.PullPos]))
+		(*discardPile).Cards[(*discardPile).PullPos] = nil
+		(*discardPile).PullPos-- // a new card is the top of the discard
+	}
 	return
 }
 
@@ -247,7 +260,7 @@ func main() {
 			    		if logLevel > 1 {
 							fmt.Println("Player", id, "discards:")
 							for _, pos := range discards {
-								fmt.Println(player.Hand.Cards[pos])
+								fmt.Println(player.CardByPos(pos))
 							}	
 						}
 					}
@@ -256,7 +269,7 @@ func main() {
 					player.Build(buildPos, discards, &discardPile, upgrade)
 					// if it's storage, you get a chance to place a card
 					if kind == card.Storage {
-						store(cardValue, &stock, &discardPile, &player);
+						store(cardValue, &stock, &discardPile, &player, phase);
 					}
 
 					log(2, fmt.Sprintf("Player %d has %d cards left", id, player.Hand.Count))
@@ -332,8 +345,8 @@ func main() {
 				if trashPos == -1 {
 					break;
 				}
-			    log(1, fmt.Sprintf("Player %d trashes %s", id, player.Hand.Cards[trashPos]))
-				player.Hand.RemoveCard(trashPos, &trash)
+			    log(1, fmt.Sprintf("Player %d trashes %s", id, player.CardByPos(trashPos)))
+				player.Spend(trashPos, &trash)
 				cardsTrashed += 1
 			}
 			// you must trash card to get the draw bonus under the current rules
@@ -343,13 +356,20 @@ func main() {
 			}
 
 			// ------- DRAW --------- //
-			// TODO: here we should use "drawFromDiscardPower" when it's greater than one
-	        if (player.Tableau.DrawFromDiscardPower >= 1) && (discardPile.PullPos > -1) {
-	        	if player.CardValue(discardPile.Cards[discardPile.PullPos], phase) > 31 {
-	        		log(1, fmt.Sprintf("Player %d draws %s from the discard", id, discardPile.Cards[discardPile.PullPos]))
-	        		
-	        	}
-	        }
+			// see how many open spots there are in the hand.  This may not run at all
+			drawCount := player.Hand.Max - player.Hand.Count
+			if drawCount > 2 {
+				drawCount = 2
+			}
+			for drawn := 0; drawn < drawCount; drawn++ {
+				// here we should use "drawFromDiscardPower" when it's greater than one
+		        if (player.Tableau.DrawFromDiscardPower >= 1) && (discardPile.PullPos > -1) {
+	    	    	if player.CardValue(discardPile.Cards[discardPile.PullPos], phase) > 31 {
+	        			log(1, fmt.Sprintf("Player %d draws %s from the discard", id, discardPile.Cards[discardPile.PullPos]))
+	        			discardPile.TopPull(1, players[id].Hand)
+	        		}
+		        }
+		    }
 		    stock.RandomPull(2, players[id].Hand) // this will only pull up to the hand limit
 		    log(2, fmt.Sprintf("Player %d draws up to %d", id, player.Hand.Count))
 

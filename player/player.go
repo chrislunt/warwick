@@ -124,7 +124,26 @@ func (player Player) LowestValueCard(phase int, excludeList []bool) (lowPos int,
 	if excludeList == nil {
 		excludeList = make([]bool, player.Hand.Max + 2) // the +2 are for "stored cards"
 	}
-	for id, thiscard := range player.Hand.Cards {
+	searchArray := make([]*card.Card, player.Hand.Max + 2) // we do this to include "Stored cards"
+	copy(searchArray, player.Hand.Cards)
+	// I debated about creating an abstraction of the additional searchable spaces, but decided to 
+	// limit it to the storage card as it is now defined.  So I just add the Storage card on to the end of 
+	// a search array (this code is copied from choose build.  Probably need to combine)
+	// TODO: combine chooseBuild and LowestValueCard
+	if player.Tableau.Stack[card.Storage] != nil {
+		storageMax := 1
+		if player.TopCard(card.Storage).Cost >= 3 { // this means you have two slots
+			storageMax = 2
+		}
+		for storagePos := 0; storagePos < storageMax; storagePos++ {
+			if player.Tableau.Storage[storagePos] != nil {
+				// add the card that's in storage into the search array
+				searchArray[player.Hand.Max + storagePos] = player.Tableau.Storage[storagePos]
+			}
+		}
+	}
+
+	for id, thiscard := range searchArray {
 		if (thiscard == nil) || (excludeList[id]) {
 			continue
 		}
@@ -132,6 +151,27 @@ func (player Player) LowestValueCard(phase int, excludeList []bool) (lowPos int,
 		if (lowPos == -1) || (player.CardValue(thiscard, phase) < value) {
 			// this is now our new low
 			lowPos = id
+			value = player.CardValue(thiscard, phase)
+		}
+	}
+	return
+}
+
+
+func (player Player) HighestValueCard(phase int, excludeList []bool) (highPos int, value int) {
+	highPos = -1
+	value = 0 // 0 to 63
+	if excludeList == nil {
+		excludeList = make([]bool, player.Hand.Max + 2) // the +2 are for "stored cards"
+	}
+	for id, thiscard := range player.Hand.Cards {
+		if (thiscard == nil) || (excludeList[id]) {
+			continue
+		}
+		// compare the value of this card to the current low
+		if (highPos == -1) || (player.CardValue(thiscard, phase) > value) {
+			// this is now our new high
+			highPos = id
 			value = player.CardValue(thiscard, phase)
 		}
 	}
@@ -227,14 +267,19 @@ func (player *Player) Build(buildPos int, discards []int, discardPile *card.Hand
 	}
 
 	// remove the built card
-	if buildPos >= (*player).Hand.Max { // this is when moving the card from storage
-		(*player).Tableau.RemoveFromStorage(buildPos - (*player).Hand.Max, nil)
-	} else {
-		(*player).Hand.RemoveCard(buildPos, nil)
-	}
+	(*player).Spend(buildPos, nil)
 
 	for _, discardPos := range discards {
-		(*player).Hand.RemoveCard(discardPos, discardPile)
+		(*player).Spend(discardPos, discardPile)
+	}
+}
+
+
+func (player *Player) Spend(pos int, discardPile *card.Hand) {
+	if pos >= (*player).Hand.Max { // this is when moving the card from storage
+		(*player).Tableau.RemoveFromStorage(pos - (*player).Hand.Max, discardPile)
+	} else {
+		(*player).Hand.RemoveCard(pos, discardPile)
 	}
 }
 
