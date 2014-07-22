@@ -109,7 +109,7 @@ func store(storePower int, stock *card.Hand, discardPile *card.Hand, player *pla
 	}
 	for spot := 0; spot <= topSpot; spot++ {
 		if (*player).Tableau.Storage[spot] == nil {
-			storeCard := chooseStore(stock, discardPile, player, phase)
+			storeCard := (*player).ChooseStore(stock, discardPile, phase)
 			log(1, fmt.Sprintf("Stored in storage %d: %s", spot, storeCard))
 			(*player).Tableau.Storage[spot] = storeCard
 		}
@@ -117,56 +117,64 @@ func store(storePower int, stock *card.Hand, discardPile *card.Hand, player *pla
 }
 
 
-// Choose from the hand, stock and discard pile, remove the card from the source, and pass it back
-func chooseStore(stock *card.Hand, discardPile *card.Hand, player *player.Player, phase int) (chosen *card.Card) {
-	// if the best card in the discard or hand is less than 31, just draw from the stock
-	discardValue := player.CardValue(discardPile.Cards[discardPile.PullPos], phase) 
-	handPos, handValue := player.HighestValueCard(phase, nil)
-	if (discardValue < 32) && (handValue < 32) {
-		// draw from the stock
-		log(1, fmt.Sprintf("Player fills storage from Stock: %s", (*stock).Cards[(*stock).PullPos]))
-		chosen = (*stock).Cards[(*stock).PullPos] // pull from the current pull position in the stock
-		(*stock).PullPos++ 
-	} else if (discardValue < handValue) {
-		// draw from the hand
-		log(1, fmt.Sprintf("Player fills storage from Hand: %s", (*player).Hand.Cards[handPos]))
-		chosen = (*player).Hand.Cards[handPos]
-		(*player).Hand.RemoveCard(handPos, nil)
+func buildStock() (stock card.Hand, stockSize int) {
+	rand.Seed( time.Now().UTC().UnixNano() )
+
+	// double the deck.  This is the canonical reference of all cards.
+	var	allCards = append(card.Deck[:], card.Deck[:]...)
+	stockSize = len(allCards)
+
+	// the stock, which can shrink, is a reference to all cards
+	stock.Cards = make([]*card.Card, stockSize)
+	stock.PullPos = stockSize - 1 // the position representing the current position to draw from
+
+	/* There are two ways we could randomize, one would be randomize the stock and keep a pointer of where we currently are,
+		which has an up-front randomization cost, but all subsequent pulls are cheap.  
+	*/
+	// TODO make this a parameter
+	testStockId := -1
+	var permutation []int
+	if testStockId != -1 {
+		/* rather than having to specify the whole deck, I allow you to only specify the top of the deck */
+		fillSize := stockSize - len(card.TestStock[testStockId])
+		fillOut := rand.Perm(fillSize)
+		// for easier reading I specify the TestStock in reverse order, so get it ready to go on top
+		s := card.TestStock[testStockId]
+		for i, j := 0, len(s)-1; i < j; i, j = i+1, j-1 {
+	        s[i], s[j] = s[j], s[i]
+    	}
+		permutation = append(fillOut[0:fillSize], card.TestStock[testStockId]...);
 	} else {
-		log(1, fmt.Sprintf("Player fills storage from Discard: %s", discardPile.Cards[discardPile.PullPos]))
-		(*discardPile).Cards[(*discardPile).PullPos] = nil
-		(*discardPile).PullPos-- // a new card is the top of the discard
+		permutation = rand.Perm(stockSize)
+	}
+	for i, v := range permutation {
+		stock.Cards[i] = &allCards[v]
 	}
 	return
 }
 
 
 func main() {
-	rand.Seed( time.Now().UTC().UnixNano() )
-
-	// double the deck.  This is the canonical reference of all cards.
-	var	allCards = append(card.Deck[:], card.Deck[:]...)
-	// the stock, which can shrink, is a reference to all cards
-	var stock card.Hand
-	stock.Cards = make([]*card.Card, len(allCards))
-	stock.PullPos = 0 // the position representing the current position to draw from
-	/* There are two ways we could randomize, one would be randomize the stock and keep a pointer of where we currently are,
-		which has an up-front randomization cost, but all subsequent pulls are cheap.  
-	*/
-	permutation := rand.Perm(len(allCards))
-	for i, v := range permutation {
-		stock.Cards[v] = &allCards[i]
-	}
+	stock, stockSize := buildStock()
 
 	var discardPile card.Hand
-	discardPile.Cards = make([]*card.Card, len(allCards))
+	discardPile.Cards = make([]*card.Card, stockSize)
 	discardPile.PullPos = -1
 
 	var trash card.Hand
-	trash.Cards = make([]*card.Card, len(allCards))
+	trash.Cards = make([]*card.Card, stockSize)
 	// trash is never pulled from, so no pull position
 
 	players := make([]player.Player, 2);
+
+	// set up rules about where you can get cards from for different actions
+	legalBuildFrom := map[int] bool{
+		player.FromHand: 	true,
+		player.FromStorage: true,
+		player.FromStock: 	false,
+		player.FromDiscard: false,
+	}
+
 	// initialize the players
 	for id := range players {
 		players[id].Hand = &card.Hand{}
@@ -183,10 +191,10 @@ func main() {
 		players[id].Tableau = &card.Tableau{}
 		players[id].Tableau.Stack = make(map[int] *card.Hand)
 		players[id].Tableau.Discounts = make([]int, 4)
-		players[id].Tableau.VictoryPoints = 0
 		players[id].Tableau.BuildBonus = 0
 		players[id].Tableau.AttackBonus = 0
-		players[id].Tableau.Storage = make(map[int] *card.Card)
+		players[id].Tableau.Storage = make([] *card.Card, 2)
+		players[id].Human = false
 
 		// the player strategy should be loaded from somewhere.  For now, set it all to 32
 		// instead of 1 value per turn, do 3 columns for beginning, middle and end.
@@ -203,14 +211,15 @@ func main() {
 			}
 		}
 	}
-
+	// TODO: this should be an input parameter
+	players[0].Human = true
 
 	turnLimit := 0 // you can use this to cut a game short for dev purposes
 	turnCount := 0
 	gameOver := false
 	// play until the deck runs out
 	// or until the first player fills everything in their table (soldier doesn't matter)
-	for (stock.PullPos < len(allCards)) && ((turnLimit == 0) || (turnCount < turnLimit)) && !gameOver {
+	for (stock.PullPos > -1) && ((turnLimit == 0) || (turnCount < turnLimit)) && !gameOver {
 		turnCount++
 		phase := turnToPhase(turnCount)
 
@@ -220,9 +229,10 @@ func main() {
 			fmt.Println("The game went to 30 turns--ending as a safety")
 			gameOver = true
 		}
+
 		// turns
 		var opponent player.Player
-		for id, player := range players {
+		for id, currentPlayer := range players {
 			if id == 0 {
 				opponent = players[1]
 			} else {
@@ -230,7 +240,7 @@ func main() {
 			}
 
 			// if we're coming back to this player and they already have 9 cards, it's time to stop
-			if player.Tableau.Fill == 9 {
+			if currentPlayer.Tableau.Fill == 9 {
 				gameOver = true
 				break;
 				// there is an error here in that if player 1 goes out first, player 0 doesn't get another play
@@ -244,35 +254,35 @@ func main() {
 			// determine card to build, cost
 			// determine discards
 			// do build
-			log(2, fmt.Sprintf("Player %d hand: %s", id, player.Hand))
-			log(2, fmt.Sprintf("Player %d Tableau: %s", id, player.Tableau))
+//			log(2, fmt.Sprintf("Player %d hand: %s", id, currentPlayer.Hand))
+			log(2, fmt.Sprintf("Player %d Tableau: %s", id, currentPlayer.Tableau))
 
 			builds := 0
 
 			// we check it each time, since if you build the card, you get to use it immediately
-			for builds < (player.Tableau.BuildBonus + 1) {
-			    buildPos, cost, upgrade := player.ChooseBuild(phase)
-			    var discards []int
-			    if buildPos != -1 {
-			    	log(1, fmt.Sprintf("Player %d builds %s for %d", id, player.CardByPos(buildPos), cost))
+			for builds < (currentPlayer.Tableau.BuildBonus + 1) {
+				buildPos, cost, upgrade := currentPlayer.PlayerChooses(legalBuildFrom, phase)
+			    var discards []player.Pos
+			    if buildPos.From != player.NoCard {
+			    	log(1, fmt.Sprintf("Player %d builds %s for %d", id, currentPlayer.CardByPos(buildPos), cost))
 				    if cost > 0 {
-			    		discards = player.ChooseDiscards(buildPos, cost, phase)
+			    		discards = currentPlayer.ChooseDiscards(buildPos, cost, phase)
 			    		if logLevel > 1 {
 							fmt.Println("Player", id, "discards:")
 							for _, pos := range discards {
-								fmt.Println(player.CardByPos(pos))
+								fmt.Println(currentPlayer.CardByPos(pos))
 							}	
 						}
 					}
-					kind := player.CardByPos(buildPos).Kind
-				    cardValue := player.CardByPos(buildPos).Cost
-					player.Build(buildPos, discards, &discardPile, upgrade)
+					kind := currentPlayer.CardByPos(buildPos).Kind
+				    cardValue := currentPlayer.CardByPos(buildPos).Cost
+					currentPlayer.Build(buildPos, discards, &discardPile, upgrade)
 					// if it's storage, you get a chance to place a card
 					if kind == card.Storage {
-						store(cardValue, &stock, &discardPile, &player, phase);
+						store(cardValue, &stock, &discardPile, &currentPlayer, phase);
 					}
 
-					log(2, fmt.Sprintf("Player %d has %d cards left", id, player.Hand.Count))
+					log(2, fmt.Sprintf("currentPlayer %d has %d cards left", id, currentPlayer.Hand.Count))
 					builds++
 
 			    } else {
@@ -280,104 +290,66 @@ func main() {
 			    }
 			}
 
-			if (player.Hand.Count == player.Hand.Limit) && (builds == 0) {
+			// TODO: human chooses to discard hand
+			
+			if (currentPlayer.Hand.Count == currentPlayer.Hand.Limit) && (builds == 0) && !currentPlayer.Human {
 			   	// if the player can't build, but they have a full hand, they will get stuck.  Invoke the hand reset rule
-		    	player.Hand.Reset()
+		    	currentPlayer.Hand.Reset()
 		    	stock.RandomPull(5, players[id].Hand)
 			   	fmt.Println("Player", id, "dumps their hand and redraws") 
 			   	// if you recycle your hand, you don't get to do any builds, attacks, exchanges
 			   	continue;
 			}
 
-			// Attack
-			// for now, I'll just attack as soon as I can, but I will try to take the best card
-			if player.Tableau.Stack[card.Soldiers] != nil {
-				// if the opponent has a defensive building, you have to do that
-				if opponent.Tableau.Stack[card.Defensive] != nil {
-					// make sure they can handle the defensive building
-					if (player.TopCard(card.Soldiers).Cost + player.Tableau.AttackBonus) >= opponent.TopCard(card.Defensive).Cost {
-						// you can take their defensive card
-						log(1, fmt.Sprintf("Player %d uses %s and takes opponent's %s", id, player.TopCard(card.Soldiers), opponent.TopCard(card.Defensive)))
-						opponent.Tableau.RemoveTop(card.Defensive, player.Hand)
-						// then loose your attack card
-						player.Tableau.RemoveTop(card.Soldiers, &trash) // TODO: remove to trash, test if it works
-					}
-				} else {
-					// Loop through the Tableau cards and find the best card to take (if you can take one)
-					value := -1
-					bestKind := -1
-					for kind := 0; kind <= 9; kind++ {
-						if opponent.Tableau.Stack[kind] != nil {
-							if (player.TopCard(card.Soldiers).Cost + player.Tableau.AttackBonus) >= opponent.TopCard(kind).Cost {
-								// note, it's how this player values the card, not the opponent
-								if (value == -1) || (player.CardValue(opponent.TopCard(kind), phase) > value) {
-									value = player.CardValue(opponent.TopCard(kind), phase)
-									bestKind = kind
-								}
-							}
-						}
-					}
-					if bestKind != -1 {
-						log(1, fmt.Sprintf("Player %d uses %s and takes opponent's %s", id, player.TopCard(card.Soldiers), opponent.TopCard(bestKind)))
-						opponent.Tableau.RemoveTop(bestKind, player.Hand)
-						// then loose your attack card
-						player.Tableau.RemoveTop(card.Soldiers, &trash) // TODO: remove to trash, test if it works
-					}
-				}
+			// ------ Attack --------- //
+			steal := currentPlayer.ChooseAttack(opponent, phase) // steal is a card kind
+			if steal != -1 {
+				log(1, fmt.Sprintf("Player %d uses %s and takes opponent's %s", id, currentPlayer.TopCard(card.Soldiers), opponent.TopCard(steal)))
+				opponent.Tableau.RemoveTop(steal, currentPlayer.Hand) 
+				// then loose your attack card
+				currentPlayer.Tableau.RemoveTop(card.Soldiers, &trash) // TODO: remove to trash, test if it works
 			}
 
+			// TODO: Human chooses cards to trash
 			// ------- TRASH --------- //
 			cardsTrashed := 0
-			for (cardsTrashed < player.Tableau.TrashBonus) && (player.Hand.Count > 0) {
+			for (cardsTrashed < currentPlayer.Tableau.TrashBonus) && (currentPlayer.Hand.Count > 0) {
 				// Strategy would be you won't discard a card over a certain value
 				// and don't discard unless you get a draw, or you have too many cards
-				trashPos, value := player.LowestValueCard(phase, nil)
+				trashPos, value := currentPlayer.LowestValueCard(phase, nil)
 
 				// if you're in the hand limit, don't trash if you have no draw bonus, 
 				// or if your lowest value card is still valuable
 				// outside of the hand limit, go ahead and trash
-				if player.Hand.Count <= player.Hand.Limit { 
-					if (player.Tableau.DrawBonus == 0) || (value > 31) { // values are from 0-63
-						trashPos = -1
+				if currentPlayer.Hand.Count <= currentPlayer.Hand.Limit { 
+					if (currentPlayer.Tableau.DrawBonus == 0) || (value > 31) { // values are from 0-63
+						trashPos.From = player.NoCard
 					}
 				}
 				// if no cards to trash, or no cards of low enough value, get out
-				if trashPos == -1 {
+				if trashPos.From == player.NoCard {
 					break;
 				}
-			    log(1, fmt.Sprintf("Player %d trashes %s", id, player.CardByPos(trashPos)))
-				player.Spend(trashPos, &trash)
+			    log(1, fmt.Sprintf("Player %d trashes %s", id, currentPlayer.CardByPos(trashPos)))
+				currentPlayer.Spend(trashPos, &trash)
 				cardsTrashed += 1
 			}
 			// you must trash card to get the draw bonus under the current rules
-			if (player.Tableau.DrawBonus > 0) && (cardsTrashed > 0) {
-				stock.RandomPull(player.Tableau.DrawBonus, players[id].Hand)
-			    log(1, fmt.Sprintf("Player %d bonus draws %d", id, player.Tableau.DrawBonus))
+			if (currentPlayer.Tableau.DrawBonus > 0) && (cardsTrashed > 0) {
+				stock.RandomPull(currentPlayer.Tableau.DrawBonus, players[id].Hand)
+			    log(1, fmt.Sprintf("Player %d bonus draws %d", id, currentPlayer.Tableau.DrawBonus))
 			}
 
 			// ------- DRAW --------- //
 			// see how many open spots there are in the hand.  This may not run at all
-			drawCount := player.Hand.Max - player.Hand.Count
-			if drawCount > 2 {
-				drawCount = 2
-			}
-			for drawn := 0; drawn < drawCount; drawn++ {
-				// here we should use "drawFromDiscardPower" when it's greater than one
-		        if (player.Tableau.DrawFromDiscardPower >= 1) && (discardPile.PullPos > -1) {
-	    	    	if player.CardValue(discardPile.Cards[discardPile.PullPos], phase) > 31 {
-	        			log(1, fmt.Sprintf("Player %d draws %s from the discard", id, discardPile.Cards[discardPile.PullPos]))
-	        			discardPile.TopPull(1, players[id].Hand)
-	        		}
-		        }
-		    }
-		    stock.RandomPull(2, players[id].Hand) // this will only pull up to the hand limit
-		    log(2, fmt.Sprintf("Player %d draws up to %d", id, player.Hand.Count))
+			currentPlayer.Draw(&discardPile, &stock, phase)
 
 		    // ------- DISCARD --------- //
-		    for player.Hand.Count > player.Hand.Limit {
-		    	fmt.Println("=================== Player", id, "has", player.Hand.Count, "cards =================");
-		    	trashPos, _ := player.LowestValueCard(phase, nil)
-		    	player.Hand.RemoveCard(trashPos, &trash)
+		    // TODO: allow player to choose discard
+		    for currentPlayer.Hand.Count > currentPlayer.Hand.Limit {
+		    	fmt.Println("=================== Player", id, "has", currentPlayer.Hand.Count, "cards =================");
+		    	trashPos, _ := currentPlayer.LowestValueCard(phase, nil)
+		    	currentPlayer.Hand.RemoveCard(trashPos.Index, &trash)
 		    }
 
 		}
@@ -386,13 +358,16 @@ func main() {
 
 	// determine the winner
 	if logLevel > 0 {
-		for id, player := range players {
-			 fmt.Println("Player", id, "Tableau:  ", player.Tableau) 
+		vp := make([]int, 2)
+		for id, currentPlayer := range players {
+			 fmt.Println("Player", id, "Tableau:  ", currentPlayer.Tableau) 
+			 vp[id] = currentPlayer.VictoryPoints()
 		}
-		fmt.Println("Player 0", players[0].Tableau.VictoryPoints, "-", players[1].Tableau.VictoryPoints, "Player 1")
-		if players[0].Tableau.VictoryPoints == players[1].Tableau.VictoryPoints {
+
+		fmt.Println("Player 0", vp[0], "-", vp[1], "Player 1")
+		if vp[0] == vp[1] {
 			fmt.Println("Tie game")
-		} else if players[0].Tableau.VictoryPoints < players[1].Tableau.VictoryPoints {
+		} else if vp[0] < vp[1] {
 			fmt.Println("Player 1 wins!")
 		} else {
 			fmt.Println("Player 0 wins!")				

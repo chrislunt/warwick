@@ -9,75 +9,95 @@ type Player struct {
 	Hand *card.Hand
 	Tableau *card.Tableau
 	Strategy [][][]int // the inputs are the turn, the card kind, and the card cost
+	Human bool
+}
+
+// These represent the places a player could choose cards from
+const NoCard = 0
+const FromHand = 1
+const FromStorage = 2
+const FromStock = 3
+const FromDiscard = 4
+
+var legalStoreFrom = map[int] bool{
+	FromHand: 	true,
+	FromStorage: false,
+	FromStock: 	true,
+	FromDiscard: true,
+}
+
+var legalDiscardFrom = map[int] bool{
+	FromHand: 	true,
+	FromStorage: true,
+	FromStock: 	false,
+	FromDiscard: false,
+}
+
+// This represents the place you can get a card from
+type Pos struct {
+	From int
+	Index int
+}
+
+// this is a function type used to test is a card is valid for an action
+type cardTest func(Pos, card.Card, Player) (bool, string)
+
+// the cardTest when everything is cool
+func everythingIsAwesome(Pos, card.Card, Player) (bool, string) {
+	return true, ""
 }
 
 
-// a return of (-1, -1) means no legal build
-func (player Player) ChooseBuild(phase int) (buildPos int, cost int, upgrade bool) {
-	buildPos = -1
+// This is for building
+func (player Player) PlayerChooses(allowedFrom map[int] bool, phase int) (pos Pos, cost int, upgrade bool) {
+	cost = 0
+	upgrade = false
+	if player.Human {
+		// TODO: if no build available, don't offer
+		choices := player.humanChooses("to build", allowedFrom, nil, nil, cardIsBuildable, true, 1) // stock, discardPile, checkBuildable, passAllowed, selectCount
+		pos = choices[0] // you can only choose 1 card to build at a time
+		if pos.From == NoCard {
+			return
+		}
+		thiscard := player.CardByPos(pos)
+		if player.TopCard(thiscard.Kind) != nil && player.TopCard(thiscard.Kind).Cost == thiscard.Cost - 1 {
+			upgrade = true
+		} else {
+			cost = thiscard.Cost + player.Tableau.Discounts[thiscard.Material]
+		}
+		return
+	} 
+	pos.From = NoCard // this means there's no legal build
+	pos.Index = -1
 	cost = -1
 	upgrade = false
 
-	// loop through the cards finding buildable cards
-	buildable := make([]*card.Card, player.Hand.Max + 2) // the plus 2 is for the potential 2 storage spaces
-	searchArray := make([]*card.Card, player.Hand.Max + 2)
-	copy(searchArray, player.Hand.Cards)
-
-	// I debated about creating an abstraction of the additional searchable spaces, but decided to 
-	// limit it to the storage card as it is now defined.  So I just add the Storage card on to the end of 
-	// a search array
-	if player.Tableau.Stack[card.Storage] != nil {
-		storageMax := 1
-		if player.TopCard(card.Storage).Cost >= 3 { // this means you have two slots
-			storageMax = 2
-		}
-		for storagePos := 0; storagePos < storageMax; storagePos++ {
-			if player.Tableau.Storage[storagePos] != nil {
-				// add the card that's in storage into the search array
-				searchArray[player.Hand.Max + storagePos] = player.Tableau.Storage[storagePos]
-			}
-		}
-	}
-
-	for i, thiscard := range searchArray {
-		if thiscard == nil {
+	for space := 1; space <= 4; space++ {
+		if !allowedFrom[space] {
 			continue
 		}
-		// You can't build a soldier card higher than your military card
-		if thiscard.Kind == card.Soldiers {
-			if (player.Tableau.Stack[card.Military] == nil) {
-				continue
-			}
-			if player.TopCard(card.Military).Cost < thiscard.Cost {
-				continue
-			}
+		var cardrange []*card.Card
+		if space == FromHand {
+			cardrange = player.Hand.Cards
+		} else if space == FromStorage {
+			cardrange = player.Tableau.Storage
 		}
-
-		// make sure the card isn't of a kind already built
-		// or that if it is, it's only one higher than the current card
-		if player.Tableau.Stack[thiscard.Kind] != nil {
-			if player.TopCard(thiscard.Kind).Cost != thiscard.Cost - 1 {
-				continue
+		value := 0 // 0 to 63
+		for id, thiscard := range cardrange {
+			if thiscard == nil {
+				continue;
 			}
-		} else {
-			// and that you can afford the card
-			discountedCost := thiscard.Cost + player.Tableau.Discounts[thiscard.Material]
-			// -1 to count because you must account for the card itself
-			if discountedCost > (player.Hand.Count - 1) {
-				continue
+			isBuildable, _ := cardIsBuildable(Pos{space, id}, *thiscard, player)
+			if (!isBuildable) {
+				continue;
 			}
-		}
 
-		buildable[i] = thiscard
-	}
-
-	value := 0 // 0 to 63
-	for id, thiscard := range buildable {
-		if thiscard != nil {
+			if (pos.From == NoCard) || (player.CardValue(thiscard, phase) > value) {
 			// compare the value of this card to the current high
-			if (buildPos == -1) || (player.CardValue(thiscard, phase) > value) {
+
 				// this is now our new high
-				buildPos = id
+				pos.From = space
+				pos.Index = id
 				cost = thiscard.Cost + player.Tableau.Discounts[thiscard.Material]
 				upgrade = false
 				if player.Tableau.Stack[thiscard.Kind] != nil {
@@ -88,8 +108,137 @@ func (player Player) ChooseBuild(phase int) (buildPos int, cost int, upgrade boo
 					}
 				}
 				value = player.CardValue(thiscard, phase)
-				// modify the value of the card based on the cost
+				// TODO: modify the value of the card based on the cost
 			}
+		}
+	}
+	return
+}
+
+
+func cardIsBuildable(pos Pos, thiscard card.Card, player Player) (buildable bool, reason string) {
+	buildable = false // our assumption
+	// You can't build a soldier card higher than your military card
+	if thiscard.Kind == card.Soldiers {
+		if (player.Tableau.Stack[card.Military] == nil) {
+			reason = "No military power"
+			return
+		}
+		if player.TopCard(card.Military).Cost < thiscard.Cost {
+			reason = "Not enough military power"
+			return
+		}
+	}
+
+	// make sure the card isn't of a kind already built
+	// or that if it is, it's only one higher than the current card
+	if player.Tableau.Stack[thiscard.Kind] != nil {
+		if player.TopCard(thiscard.Kind).Cost > thiscard.Cost - 1 {
+			reason = "You already played a more powerful card of this kind"
+			return
+		}
+		if player.TopCard(thiscard.Kind).Cost < thiscard.Cost - 1 {
+			reason = "The card of this kind you already played is must be one less to upgrade"
+			return
+		}
+	} else {
+		// and that you can afford the card
+		discountedCost := thiscard.Cost + player.Tableau.Discounts[thiscard.Material]
+		// -1 to count because you must account for the card itself
+		availableCards := player.Hand.Count - 1
+		// Add in the cards in storage
+		for _, thiscard := range player.Tableau.Storage {
+			if thiscard != nil {
+				availableCards++
+			}
+		}
+		if discountedCost > availableCards {
+			reason = "You can't afford it"
+			return
+		}
+	}
+	buildable = true
+	reason = ""
+	return
+}
+
+
+// Depending on the situation, the player may choose from his hand, cards in storage, the discard and the stock, or no card at all
+// So the selection is represented as where the card is coming from, and the position.
+// if you have to choose multiple cards, it will prevent you from choosing the same card twice
+func (player Player) humanChooses(
+	actionLabel string,
+	allowedFrom map[int] bool, 
+	stock *card.Hand, 
+	discardPile *card.Hand, 
+	cardIsValid cardTest, 
+	passAllowed bool,
+	selectCount int) (positions []Pos) {
+
+	choiceId := 0 // this is the number the human will key in to make their choice
+	choice := make(map[int] Pos) // keep track of what each choice points to
+
+	if passAllowed {
+		fmt.Println("0 . no build")
+		choice[choiceId] = Pos{NoCard, 0}
+	}
+
+	choiceId++ // only pass is ever 0, so if no pass, we still move up by one
+
+	location := "" // for telling people where they're playing from
+	var cardrange []*card.Card
+
+	for space := 1; space <= 4; space++ {
+		if !allowedFrom[space] {
+			continue
+		}
+
+		if space == FromDiscard {
+			// only if there's a card available on the discard
+			if discardPile.PullPos == 0 { // TODO: test this case
+				continue
+			}
+			thiscard := discardPile.Cards[discardPile.PullPos]
+			fmt.Printf("%d. DISCARD %s: %s\n", choiceId, thiscard, thiscard.Rule)
+			choice[choiceId] = Pos{space, 0}
+			continue
+
+		} else if space == FromStock {
+			fmt.Printf("%d. STOCK\n", choiceId)
+			choice[choiceId] = Pos{space, 0}
+			choiceId++
+			continue // to to the next space
+
+		} else if space == FromHand {
+			cardrange = player.Hand.Cards
+			location = ""
+		} else if space == FromStorage {
+			cardrange = player.Tableau.Storage
+			location = "STORAGE "
+		}
+
+		for id, thiscard := range cardrange {
+			if thiscard == nil {
+				continue
+			}
+			isValid, reason := cardIsValid(Pos{space, id}, *thiscard, player)
+			if (!isValid) {
+				fmt.Printf("   %s%s (%s)\n", location, thiscard, reason)
+				continue
+			}
+			fmt.Printf("%d. %s%s: %s\n", choiceId, location, thiscard, thiscard.Rule)
+			choice[choiceId] = Pos{space, id}
+			choiceId++
+		}
+	}
+
+	positions = make([]Pos, selectCount)
+	// TODO: can't select same number twice
+	for i := 0; i < selectCount; i++ {
+		pos := queryPos(actionLabel, choice)
+		positions[i] = pos
+		if pos.From == NoCard {
+			return
 		}
 	}
 
@@ -97,60 +246,107 @@ func (player Player) ChooseBuild(phase int) (buildPos int, cost int, upgrade boo
 }
 
 
-func (player Player) ChooseDiscards(protected int, cost int, phase int) (discards []int) {
+func queryPos(actionLabel string, choice map[int] Pos) (Pos) {
+	// loop until they select a valid response
+	for ;; {
+		fmt.Printf("Choose a card %s:\n", actionLabel)
+		var input int
+		fmt.Scan(&input)
+
+		// TODO: add ability to restart the current action
+
+		_, ok := choice[input] // check if the value given is in the choices
+		if !ok {
+			continue
+		}
+		return choice[input]
+	}
+}
+
+
+func (player Player) ChooseDiscards(protected Pos, cost int, phase int) (discards []Pos) {
+	if player.Human {
+		return player.HumanChooseDiscards(protected, cost)
+	}
 	// Consider if you'd rather use your stored cards.  You may value them differently, especially if you have
 	// an upgrade for your storage that may refill the spot.  To not get too complicated, let's just compare
 	// on the basis of the raw value, and if any of the stored cards are less than the card in the hand,
 	// we'll remove those instead.
 
-	discards = make([]int, cost) 
+	discards = make([]Pos, cost) 
 	// use cost to track your index position in the discards
-	excludeList := make([]bool, player.Hand.Max + 2) // the +2 are for "stored cards"
-	excludeList[protected] = true
+	excludeList := make([][]bool, 3) // there are 3 spaces where this is valid: nothing, hand, and storage
+	excludeList[FromHand] = make([]bool, player.Hand.Max)
+	excludeList[FromStorage] = make([]bool, 2)
+	excludeList[protected.From][protected.Index] = true
 	for cost > 0 {
-		id, _ := player.LowestValueCard(phase, excludeList)
-		excludeList[id] = true
+		pos, _ := player.LowestValueCard(phase, excludeList)
+		excludeList[pos.From][pos.Index] = true
 		cost--
-		discards[cost] = id
+		discards[cost] = pos
 	}
 	return
 }
 
 
-func (player Player) LowestValueCard(phase int, excludeList []bool) (lowPos int, value int) {
-	lowPos = -1
-	value = 0 // 0 to 63
-	if excludeList == nil {
-		excludeList = make([]bool, player.Hand.Max + 2) // the +2 are for "stored cards"
+func (player Player) HumanChooseDiscards(protected Pos, cost int) (discards []Pos) {
+	discards = make([]Pos, cost) 
+	excludeProtected := func(pos Pos, thiscard card.Card, player Player) (bool, string) {
+		if pos == protected {
+			return false, "You can't discard this card"
+		} else {
+			return true, ""
+		}
 	}
-	searchArray := make([]*card.Card, player.Hand.Max + 2) // we do this to include "Stored cards"
-	copy(searchArray, player.Hand.Cards)
-	// I debated about creating an abstraction of the additional searchable spaces, but decided to 
-	// limit it to the storage card as it is now defined.  So I just add the Storage card on to the end of 
-	// a search array (this code is copied from choose build.  Probably need to combine)
-	// TODO: combine chooseBuild and LowestValueCard
-	if player.Tableau.Stack[card.Storage] != nil {
-		storageMax := 1
-		if player.TopCard(card.Storage).Cost >= 3 { // this means you have two slots
-			storageMax = 2
-		}
-		for storagePos := 0; storagePos < storageMax; storagePos++ {
-			if player.Tableau.Storage[storagePos] != nil {
-				// add the card that's in storage into the search array
-				searchArray[player.Hand.Max + storagePos] = player.Tableau.Storage[storagePos]
-			}
-		}
+	return player.humanChooses(
+		"to discard",
+		legalDiscardFrom, 
+		nil, // stock
+		nil, // discardPile
+		excludeProtected,
+		false, // pass allowed
+		cost, // selectCount
+	)
+}
+
+
+// TODO: I should be able to combine this routine with computerChooses, by passing in a "Playable function" 
+// and a "compare function"
+func (player Player) LowestValueCard(phase int, excludeList [][]bool) (pos Pos, value int) {
+	pos.From = NoCard // this means there's no card available
+	pos.Index = -1
+	if excludeList == nil {
+		excludeList = make([][]bool, 3) // there are 3 spaces where this is valid: nothing, hand, and storage
 	}
 
-	for id, thiscard := range searchArray {
-		if (thiscard == nil) || (excludeList[id]) {
-			continue
+	for space := 1; space <= 2; space++ {
+		var cardrange []*card.Card
+		if space == FromHand {
+			cardrange = player.Hand.Cards
+			if excludeList[space] == nil {
+				excludeList[space] = make([]bool, player.Hand.Max)
+			}
+		} else if space == FromStorage {
+			cardrange = player.Tableau.Storage
+			if excludeList[space] == nil {
+				excludeList[space] = make([]bool, 2) // there are a max of 2 storage in the current rules
+			}
 		}
-		// compare the value of this card to the current low
-		if (lowPos == -1) || (player.CardValue(thiscard, phase) < value) {
-			// this is now our new low
-			lowPos = id
-			value = player.CardValue(thiscard, phase)
+		value := 64 // 0 to 63
+		for id, thiscard := range cardrange {
+			if (thiscard == nil) || excludeList[space][id] {
+				continue
+			}
+
+			if (pos.From == NoCard) || (player.CardValue(thiscard, phase) < value) {
+			// compare the value of this card to the current low
+
+				// this is now our new low
+				pos.From = space
+				pos.Index = id
+				value = player.CardValue(thiscard, phase)
+				// TODO: modify the value of the card based on the cost
+			}
 		}
 	}
 	return
@@ -167,7 +363,7 @@ func (player Player) HighestValueCard(phase int, excludeList []bool) (highPos in
 		if (thiscard == nil) || (excludeList[id]) {
 			continue
 		}
-		// compare the value of this card to the current low
+	// compare the value of this card to the current low
 		if (highPos == -1) || (player.CardValue(thiscard, phase) > value) {
 			// this is now our new high
 			highPos = id
@@ -203,7 +399,7 @@ func (player Player) CardValue(thiscard *card.Card, phase int) (value int) {
 }
 
 
-func (player *Player) Build(buildPos int, discards []int, discardPile *card.Hand, upgrade bool) {
+func (player *Player) Build(buildPos Pos, discards []Pos, discardPile *card.Hand, upgrade bool) {
 	buildCard := (*player).CardByPos(buildPos)
 	kind := buildCard.Kind
 	if (*player).Tableau.Stack[kind] == nil { // initialize
@@ -229,19 +425,6 @@ func (player *Player) Build(buildPos int, discards []int, discardPile *card.Hand
 			(*player).Tableau.Discounts[i] -= (*player).TopCard(kind).CostModifier[i] //(*player).Tableau.Stack[kind].Cards[pullPos].CostModifier[i]
 		}
 		(*player).Tableau.Discounts[i] += buildCard.CostModifier[i]
-	}
-
-	// add victory points
-	if upgrade {
-		(*player).Tableau.VictoryPoints -= (*player).Tableau.Stack[kind].Cards[pullPos].VictoryPoints
-		if (*player).Tableau.Stack[kind].Cards[pullPos].VictoryPoints > 0 { 
-			fmt.Println("Remove", (*player).Tableau.Stack[kind].Cards[pullPos].VictoryPoints, "victoryPoints")
-		}
-	}
-
-	(*player).Tableau.VictoryPoints += buildCard.VictoryPoints
-	if buildCard.VictoryPoints > 0 { 
-		fmt.Println("Add", buildCard.VictoryPoints, "victoryPoints")
 	}
 
 	// if appropriate, cache the bonus info at the Tableau level
@@ -273,11 +456,62 @@ func (player *Player) Build(buildPos int, discards []int, discardPile *card.Hand
 }
 
 
-func (player *Player) Spend(pos int, discardPile *card.Hand) {
-	if pos >= (*player).Hand.Max { // this is when moving the card from storage
-		(*player).Tableau.RemoveFromStorage(pos - (*player).Hand.Max, discardPile)
+// TODO: this could be done better
+func (player *Player) ChooseStore(stock *card.Hand, discardPile *card.Hand, phase int) (chosen *card.Card) {
+	var pos Pos
+	if (*player).Human {
+		pos = (*player).humanChooseStore(stock, discardPile)
 	} else {
-		(*player).Hand.RemoveCard(pos, discardPile)
+		// if the best card in the discard or hand is less than 31, just draw from the stock
+		discardValue := player.CardValue(discardPile.Cards[discardPile.PullPos], phase) 
+		handPos, handValue := player.HighestValueCard(phase, nil)
+		if (discardValue < 32) && (handValue < 32) {
+			// draw from the stock
+			pos = Pos{FromStock, 0}
+			fmt.Sprintf("Player fills storage from Stock: %s", (*stock).Cards[(*stock).PullPos])
+		} else if (discardValue < handValue) {
+			// draw from the hand
+			pos = Pos{FromHand, handPos}
+			fmt.Sprintf("Player fills storage from Hand: %s", (*player).Hand.Cards[handPos])
+		} else {
+			pos = Pos{FromDiscard, 0}
+			fmt.Sprintf("Player fills storage from Discard: %s", discardPile.Cards[discardPile.PullPos])
+		}
+	}
+
+	if pos.From == FromStock {
+		chosen = (*stock).Cards[(*stock).PullPos] // pull from the current pull position in the stock
+		(*stock).PullPos++ 
+//		return player.CardByPos(pos)
+	} else if pos.From == FromDiscard {
+		chosen = (*discardPile).Cards[(*discardPile).PullPos]
+		(*discardPile).Cards[(*discardPile).PullPos] = nil
+		(*discardPile).PullPos-- // a new card is the top of the discard
+	} else if pos.From == FromHand {
+		chosen = (*player).Hand.Cards[pos.Index]
+		(*player).Hand.RemoveCard(pos.Index, nil)
+	}
+	return
+}
+
+
+// TODO: pick 2 if that's the option
+// Choose from the hand, stock and discard pile, remove the card from the source, and pass it back
+func (player *Player) humanChooseStore(stock *card.Hand, discardPile *card.Hand) (pos Pos) {
+	fmt.Println("You may store a card.  Please choose:")
+	choices := (*player).humanChooses("to store", legalStoreFrom, stock, discardPile, everythingIsAwesome, false, 1)
+	pos = choices[0] // you can only choose 1
+	return
+}
+
+
+func (player *Player) Spend(pos Pos, discardPile *card.Hand) {
+	if pos.From == FromStorage {
+		(*player).Tableau.RemoveFromStorage(pos.Index, discardPile)
+	} else if pos.From == FromHand {
+		(*player).Hand.RemoveCard(pos.Index, discardPile)
+	} else {
+		panic("can only player.Spend from Storage or Hand")
 	}
 }
 
@@ -290,13 +524,162 @@ func (player Player) TopCard(kind int) (top *card.Card) {
 }
 
 
-func (player Player) CardByPos(pos int) (returnCard *card.Card) {
-   	if pos >= player.Hand.Max { // this is true when building from storage
-   		returnCard = player.Tableau.Storage[pos - player.Hand.Max]
+func (player Player) CardByPos(pos Pos) (returnCard *card.Card) {
+	if pos.From == FromStorage {
+   		returnCard = player.Tableau.Storage[pos.Index]
+   	} else if pos.From == FromHand {
+		returnCard = player.Hand.Cards[pos.Index]
    	} else {
-		returnCard = player.Hand.Cards[pos]
+   		panic("can only player.CardByPos from Hand or Storage")
    	}
    	return
 }
 
+
+func (currentPlayer Player) humanChooseAttack(opponent Player) (steal int) {
+	steal = -1
+	// if the opponent has a defensive building, you have to do that
+	attackPower := currentPlayer.TopCard(card.Soldiers).Cost + currentPlayer.Tableau.AttackBonus
+	if opponent.Tableau.Stack[card.Defensive] != nil {
+		// make sure they can handle the defensive building
+		if attackPower >= opponent.TopCard(card.Defensive).Cost {
+			// you can take their defensive card
+			for ;; { // loop until you get a valid response
+				fmt.Printf("Would you like to use your soldier to take your opponent's %s (y/n)?\n", opponent.TopCard(card.Defensive).Name)
+				var input string
+				fmt.Scan(&input)
+				if input == "y" {
+					steal = card.Defensive
+					return
+				} else if input == "n" {
+					return
+				}
+			}
+		}
+		return
+	}
+	found := false
+	choice := make(map[int] int) // keep track of what each choice points to
+	options := "--ATTACK--\n0. No attack\n"
+	choice[0] = -1
+	choiceId := 1 // this is the number the human will key in to make their choice
+	for kind := 0; kind <= 9; kind++ {
+		if opponent.Tableau.Stack[kind] != nil && attackPower >= opponent.TopCard(kind).Cost {
+			found = true
+			options += fmt.Sprintf("%d. %s\n", choiceId, opponent.TopCard(kind))
+			choice[choiceId] = kind
+			choiceId++
+		}
+	}
+	
+	if found {
+		fmt.Printf(options)
+		for ;; { // loop until you get a valid response
+			fmt.Printf("Choose a card to take from your opponent:\n")
+			var input int
+			fmt.Scan(&input)
+			_, ok := choice[input] // check if the value given is in the choices
+			if ok {
+				return choice[input]
+			}
+		}
+	}
+	return
+}
+
+
+func (currentPlayer Player) ChooseAttack(opponent Player, phase int) (steal int) {
+	steal = -1
+	// for now, I'll just attack as soon as I can, but I will try to take the best card
+	if currentPlayer.Tableau.Stack[card.Soldiers] == nil {
+		return
+	}
+
+	if currentPlayer.Human {
+		return currentPlayer.humanChooseAttack(opponent)
+	}
+
+	// if the opponent has a defensive building, you have to do that
+	if opponent.Tableau.Stack[card.Defensive] != nil {
+		// make sure they can handle the defensive building
+		if (currentPlayer.TopCard(card.Soldiers).Cost + currentPlayer.Tableau.AttackBonus) >= opponent.TopCard(card.Defensive).Cost {
+			// you can take their defensive card
+			steal = card.Defensive
+		}
+		return
+	}
+
+	// Loop through the Tableau cards and find the best card to take (if you can take one)
+	value := -1
+	bestKind := -1
+	for kind := 0; kind <= 9; kind++ {
+		if opponent.Tableau.Stack[kind] != nil {
+			if (currentPlayer.TopCard(card.Soldiers).Cost + currentPlayer.Tableau.AttackBonus) >= opponent.TopCard(kind).Cost {
+				// note, it's how this player values the card, not the opponent
+				if (value == -1) || (currentPlayer.CardValue(opponent.TopCard(kind), phase) > value) {
+					value = currentPlayer.CardValue(opponent.TopCard(kind), phase)
+					bestKind = kind
+				}
+			}
+		}
+	}
+	if bestKind != -1 {
+		steal = bestKind
+	}
+	return
+}
+
+
+func (currentPlayer *Player) Draw(discardPile *card.Hand, stock *card.Hand, phase int) {
+    if (*currentPlayer).Tableau.DrawFromDiscardPower < 1 {
+	    stock.RandomPull(2, (*currentPlayer).Hand) // this will only pull up to the hand limit
+	    return
+	}
+	// here we should use "drawFromDiscardPower" when it's greater than one
+	drawCount := (*currentPlayer).Hand.Max - (*currentPlayer).Hand.Count
+	if drawCount == 0 {
+		return
+	}
+	if drawCount > 2 { // you can't draw more than 2
+		drawCount = 2
+	}
+	// loop through the draws you have
+	for ; drawCount > 0; drawCount-- {
+		if discardPile.PullPos == -1 { // the discard pile is empty, must pull from stock
+        	stock.RandomPull(1, (*currentPlayer).Hand)
+		} else if (*currentPlayer).Human {
+			for ;; { // loop until you get a valid response
+				fmt.Printf("Would you like to draw from the discard '%s' (y/n)?\n", discardPile.Cards[discardPile.PullPos])
+				var input string
+				fmt.Scan(&input)
+				if input == "y" {
+		   			discardPile.TopPull(1, (*currentPlayer).Hand)
+		   			break;
+				} else if input == "n" {
+					// pull the remaining cards from the stock
+		        	stock.RandomPull(drawCount, (*currentPlayer).Hand)
+		        	return;
+				}
+			}
+
+       	} else if (*currentPlayer).CardValue(discardPile.Cards[discardPile.PullPos], phase) > 31 {
+   			fmt.Sprintf("Player draws %s from the discard", discardPile.Cards[discardPile.PullPos])
+   			discardPile.TopPull(1, (*currentPlayer).Hand)
+        } else {
+        	stock.RandomPull(1, (*currentPlayer).Hand)
+        }
+    }
+
+}
+
+
+func (currentPlayer Player) VictoryPoints() (vp int) {
+	vp = 0
+	for kind := 0; kind <= 9; kind++ {
+		if currentPlayer.Tableau.Stack[kind] != nil {
+			vp += currentPlayer.TopCard(kind).VictoryPoints
+		}
+	}
+	return
+}
 

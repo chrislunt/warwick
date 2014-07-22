@@ -109,11 +109,12 @@ func (h Hand)String() string{
 
 
 // dump the hand
+// TODO: move to the trash
 func (from *Hand) Reset() {
 	for	pos := 0; pos < (*from).Max; pos++ { 
 		(*from).Cards[pos] = nil
-		(*from).Count--
 	}
+	(*from).Count = 0
 }
 
 
@@ -126,12 +127,11 @@ func (from *Hand) RandomPull(pullCount int, receiving *Hand) {
 			break;
 		}
 		if ((*receiving).Cards[placePos] == nil) {
-//fmt.Println("Stock pull", (*from).PullPos)
-			if (*from).PullPos >= len((*from).Cards) {
+			if (*from).PullPos < 0 {
 				return
 			}
 			(*receiving).Cards[placePos] = (*from).Cards[(*from).PullPos] // pull from the current pull position in the stock
-			(*from).PullPos++ // a new card is the top of the stock
+			(*from).PullPos-- // a new card is the top of the stock
 			(*receiving).Count++
 			pullCount--
 			if (pullCount == 0) {
@@ -142,6 +142,7 @@ func (from *Hand) RandomPull(pullCount int, receiving *Hand) {
 }
 
 
+// TODO: we can't seem to get the last card off of the discard
 // TODO: this is inconsistant with the way I'm managing the stock.  Seems like we should be able to combine these two
 func (from *Hand) TopPull(pullCount int, receiving *Hand) {
 	for	placePos := 0; placePos < (*receiving).Max; placePos++ { // the first spot in the receiving hand
@@ -149,7 +150,6 @@ func (from *Hand) TopPull(pullCount int, receiving *Hand) {
 			break;
 		}
 		if ((*receiving).Cards[placePos] == nil) {
-//fmt.Println("Stock pull", (*from).PullPos)
 			if (*from).PullPos >= len((*from).Cards) {
 				return
 			}
@@ -168,7 +168,7 @@ func (from *Hand) TopPull(pullCount int, receiving *Hand) {
 
 type Tableau struct {
 	Stack map[int]*Hand
-	Storage map[int] *Card
+	Storage [] *Card
 	Discounts []int
 	Fill int // keep track of how filled the tableau is
 	VictoryPoints int
@@ -191,6 +191,7 @@ func (t Tableau)String() string{
 
 
 // remove the top card from that tableau stack, adding to the given hand
+// TODO: remove victory points
 func (tableau *Tableau) RemoveTop(kind int, hand *Hand) {
 	top := (*tableau).Stack[kind].PullPos
 	if hand != nil {
@@ -233,54 +234,64 @@ func (tableau *Tableau) RemoveTop(kind int, hand *Hand) {
 
 
 var Deck = []Card{
-	{"Fowlery", 1, Farm, Wood, 0, []int{0,0,0,-1}, 0, 0, 0, 0, 0, "-1 to recruit soldier"},
-	{"Pig Farm", 2, Farm, Wood, 0, []int{0,0,0,-2}, 0, 0, 0, 0, 0, "-2 to recruit soldier"},
-	{"Cow fields", 3, Farm, Wood, 0, []int{0,0,0,-3}, 0, 0, 0, 0, 0, "-3 to recruit soldier"},
-	{"Manor", 4, Farm, Wood, 1, []int{0,0,0,-4}, 0, 0, 0, 0, 0, "-4 to recruit soldier; +1 VP"},
+	{"Fowlery", 1, Farm, Wood, 0, []int{0,0,0,-1}, 0, 0, 0, 0, 0, "-1 to recruit soldier"}, //0
+	{"Pig Farm", 2, Farm, Wood, 0, []int{0,0,0,-2}, 0, 0, 0, 0, 0, "-2 to recruit soldier"}, //1
+	{"Cow fields", 3, Farm, Wood, 0, []int{0,0,0,-3}, 0, 0, 0, 0, 0, "-3 to recruit soldier"}, //2
+	{"Manor", 4, Farm, Wood, 1, []int{0,0,0,-4}, 0, 0, 0, 0, 0, "-4 to recruit soldier; +1 VP"}, //3
 
-	{"Trading Post", 1, Market, Wood, 0, []int{0,0,0,0}, 0, 1, 0, 0, 0, "may draw from discard pile"},
+	{"Trading Post", 1, Market, Wood, 0, []int{0,0,0,0}, 0, 1, 0, 0, 0, "may draw from discard pile"}, //4
 	{"Bazaar", 2, Market, Wood, 0, []int{0,0,0,0}, 0, 1, 1, 0, 0, "may draw from discard pile; may trash 1"},
 	{"Exchange", 3, Market, Wood, 0, []int{0,0,0,0}, 0, 1, 1, 1, 0, "may draw from discard pile; trash 1 to draw 1"},
 	{"Faire", 4, Market, Wood, 1, []int{0,0,0,0}, 0, 1, 1, 2, 0, "may draw from discard pile; trash 1 to draw 2; +1 VP"},
 
 	// Storage is 4 spaces.  Cards in storage may only be built, not discarded or trashed.  If storage card is raided, all storage goes with it
-	{"Shed", 1, Storage, Wood, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "fill in storage space 1 from hand, draw or discard; may play that card but don't refill"},
+	{"Shed", 1, Storage, Wood, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "fill in storage space 1 from hand, draw or discard; may play that card but don't refill"},//8
 	{"Warehouse", 2, Storage, Wood, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "refill storage spot 1 only if it's open"}, 
 	{"Storehouse", 3, Storage, Wood, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "fill in storage space 2 from hand, draw or discard; may play that card but don't refill"},
 	{"Vaults", 4, Storage, Wood, 1, []int{0,0,0,0}, 0, 0, 0, 0, 0, "refill any open storage; +1 VP"},
 
-	{"Sawmill", 1, Supply, Metal, 0, []int{-1,0,0,0}, 0, 0, 0, 0, 0, "-1 to build Wood card"},
+	{"Sawmill", 1, Supply, Metal, 0, []int{-1,0,0,0}, 0, 0, 0, 0, 0, "-1 to build Wood card"}, //12
 	{"Mine", 2, Supply, Metal, 0, []int{0,-1,0,0}, 0, 0, 0, 0, 0, "-1 to build metal card"},
 	{"Quarry", 3, Supply, Metal, 0, []int{0,0,-1,0}, 0, 0, 0, 0, 0, "-1 to build stone card"},
 	{"Gold stream", 4, Supply, Metal, 1, []int{-1,-1,-1,0}, 0, 0, 0, 0, 0, "-1 to build any card with a resource type, +1 VP"},
 
-	{"Carpentery", 1, Manufacturing, Metal, 0, []int{-1,0,0,0}, 0, 0, 0, 0, 0, "-1 cost to build Wood card"},
+	{"Carpentery", 1, Manufacturing, Metal, 0, []int{-1,0,0,0}, 0, 0, 0, 0, 0, "-1 cost to build Wood card"}, //16
 	{"Blacksmith", 2, Manufacturing, Metal, 0, []int{0,-1,0,0}, 0, 0, 0, 0, 0, "-1 cost to build metal card"},
 	{"Mason", 3, Manufacturing, Metal, 0, []int{0,0,-1,0}, 0, 0, 0, 0, 0, "-1 cost to build stone card"},
 	{"Bank", 4, Manufacturing, Metal, 1, []int{-1,-1,-1,0}, 0, 0, 0, 0, 0, "-1 cost to build any card with a resource type; + 1 VP"},
 
-	{"Armory", 1, Military, Metal, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Allows recruiting soldier up to level 1"},
+	{"Armory", 1, Military, Metal, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Allows recruiting soldier up to level 1"}, //20
 	{"Garrison", 2, Military, Metal, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Allows recruiting soldier up to level 2"},
 	{"Barrack", 3, Military, Metal, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Allows recruiting soldier up to level 3"},
 	{"Fort", 4, Military, Metal, 1, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Allows recruiting soldier up to level 4; +1 VP"},
 
-	{"Walls", 1, Defensive, Stone, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Protects all other buildings, may be taken by level 1 soldier"},
+	{"Walls", 1, Defensive, Stone, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Protects all other buildings, may be taken by level 1 soldier"}, //24
 	{"Tower", 2, Defensive, Stone, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Protects all other buildings, may be taken by level 2 soldier"},
 	{"Keep", 3, Defensive, Stone, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Protects all other buildings, may be taken by level 3 soldier"},
 	{"Castle", 4, Defensive, Stone, 1, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Protects all other buildings, may be taken by level 4 soldier; +1 VP"},
 
-	{"Chapel", 1, Civic, Stone, 1, []int{0,0,0,0}, 0, 0, 0, 0, 0, "+1 VP"},
+	{"Chapel", 1, Civic, Stone, 1, []int{0,0,0,0}, 0, 0, 0, 0, 0, "+1 VP"}, //28
 	{"Church", 2, Civic, Stone, 2, []int{0,0,0,0}, 0, 0, 0, 0, 0, "+2 VP"},
 	{"Town Hall", 3, Civic, Stone, 3, []int{0,0,0,0}, 0, 0, 0, 0, 0, "+3 VP"},
 	{"Cathedral", 4, Civic, Stone, 4, []int{0,0,0,0}, 0, 0, 0, 0, 0, "+4 VP"},
 
-	{"Novice", 1, School, Stone, 0, []int{0,0,0,0}, 1, 0, 0, 0, 0, "+1 build"},
+	{"Novice", 1, School, Stone, 0, []int{0,0,0,0}, 1, 0, 0, 0, 0, "+1 build"}, //32
 	{"Adept", 2, School, Stone, 0, []int{0,0,0,0}, 1, 0, 0, 0, 1, "+1 build; +1 to Attack"},
 	{"Mage", 3, School, Stone, 0, []int{0,0,0,0}, 2, 0, 0, 0, 1, "+2 builds; +1 to Attack"},
 	{"Wizard", 4, School, Stone, 1, []int{0,0,0,0}, 2, 0, 0, 0, 2, "+2 builds; +2 to Attack; +1 VP"},
 	
-	{"Town Watch", 1, Soldiers, Soldier, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Only build if right military building built.  Optional: may take opponent card up to 1, may -1 opponent attack; trash after use"},
+	{"Town Watch", 1, Soldiers, Soldier, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Only build if right military building built.  Optional: may take opponent card up to 1, may -1 opponent attack; trash after use"}, //36
 	{"Archers", 2, Soldiers, Soldier, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Only build if right military building built.  Optional: may take opponent card up to 2, may -2 opponent attack; trash after use"},
 	{"Militia", 3, Soldiers, Soldier, 0, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Only build if right military building built.  Optional: may take opponent card up to 3, may -3 opponent attack; trash after use"},
 	{"Knights", 4, Soldiers, Soldier, 1, []int{0,0,0,0}, 0, 0, 0, 0, 0, "Only build if right military building built.  Optional: may take opponent card up to 4, may -4 opponent attack; trash after use; +1 VP"},
+}
+
+var TestStock = [][]int{
+	1: {4}, // put the trading post on front to test bottoming out the discardPile
+	2: {23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 39}, // QUICK KNIGHTS: to test end-of-turn discard
+	3: {23, 0, 1, 3, 9,  28, 29, 30, 31, 8, // STACK OF DOOM: play Fort
+		 17, 32,  18, 19, // adept 
+		 36, 10,  20, 21, // watch, archers
+		 37, 38,  11, 12, // archers, militia
+		 39},             // knights
 }
