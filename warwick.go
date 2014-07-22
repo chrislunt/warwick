@@ -290,15 +290,17 @@ func main() {
 			    }
 			}
 
-			// TODO: human chooses to discard hand
-			
-			if (currentPlayer.Hand.Count == currentPlayer.Hand.Limit) && (builds == 0) && !currentPlayer.Human {
-			   	// if the player can't build, but they have a full hand, they will get stuck.  Invoke the hand reset rule
-		    	currentPlayer.Hand.Reset()
-		    	stock.RandomPull(5, players[id].Hand)
-			   	fmt.Println("Player", id, "dumps their hand and redraws") 
-			   	// if you recycle your hand, you don't get to do any builds, attacks, exchanges
-			   	continue;
+	    	// When they don't build, and they have cards, check if they'd like to trash and redraw
+			if builds == 0 {
+		    	preResetCount := currentPlayer.Hand.Count 
+		    	if (currentPlayer.Human && preResetCount > 0 && currentPlayer.HumanWantsRedraw()) || (currentPlayer.Hand.Count == currentPlayer.Hand.Limit) {
+			   		// if the computer player can't build, but they have a full hand, they will get stuck.  Invoke the hand reset rule
+			    	currentPlayer.Hand.Reset()
+    				stock.RandomPull(preResetCount, players[id].Hand)
+				   	fmt.Println("Player", id, "dumps their hand and redraws") 
+				   	// if you recycle your hand, you don't get to do any builds, attacks, exchanges
+    				continue;
+				}
 			}
 
 			// ------ Attack --------- //

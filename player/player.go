@@ -187,7 +187,7 @@ func (player Player) humanChooses(
 
 	location := "" // for telling people where they're playing from
 	var cardrange []*card.Card
-
+// TODO: if there is no choice, don't ask, , or if there is a one card cost and there is only one card
 	for space := 1; space <= 4; space++ {
 		if !allowedFrom[space] {
 			continue
@@ -234,6 +234,7 @@ func (player Player) humanChooses(
 
 	positions = make([]Pos, selectCount)
 	// TODO: can't select same number twice
+	// TODO: give a reset option in case they screw up
 	for i := 0; i < selectCount; i++ {
 		pos := queryPos(actionLabel, choice)
 		positions[i] = pos
@@ -585,6 +586,20 @@ func (currentPlayer Player) humanChooseAttack(opponent Player) (steal int) {
 		}
 	}
 	return
+}
+
+
+func (currentPlayer Player) HumanWantsRedraw() (bool) {
+	for ;; { // loop until you get a valid response
+		fmt.Printf("Would you like to trash your hand and redraw %d cards (y/n)?:\n", currentPlayer.Hand.Count)
+		var input string
+		fmt.Scan(&input)
+		if input == "y" {
+			return true
+		} else if input == "n" {
+			return false
+		}
+	}
 }
 
 
