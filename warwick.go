@@ -315,26 +315,10 @@ func main() {
 			// TODO: Human chooses cards to trash
 			// ------- TRASH --------- //
 			cardsTrashed := 0
-			for (cardsTrashed < currentPlayer.Tableau.TrashBonus) && (currentPlayer.Hand.Count > 0) {
-				// Strategy would be you won't discard a card over a certain value
-				// and don't discard unless you get a draw, or you have too many cards
-				trashPos, value := currentPlayer.LowestValueCard(phase, nil)
-
-				// if you're in the hand limit, don't trash if you have no draw bonus, 
-				// or if your lowest value card is still valuable
-				// outside of the hand limit, go ahead and trash
-				if currentPlayer.Hand.Count <= currentPlayer.Hand.Limit { 
-					if (currentPlayer.Tableau.DrawBonus == 0) || (value > 31) { // values are from 0-63
-						trashPos.From = player.NoCard
-					}
-				}
-				// if no cards to trash, or no cards of low enough value, get out
-				if trashPos.From == player.NoCard {
-					break;
-				}
-			    log(1, fmt.Sprintf("Player %d trashes %s", id, currentPlayer.CardByPos(trashPos)))
-				currentPlayer.Spend(trashPos, &trash)
-				cardsTrashed += 1
+			// TrashBonus measures the amount of cards you can trash in order to draw a new one
+			if currentPlayer.Tableau.TrashBonus > 0 && currentPlayer.Hand.Count > 0 {
+				trashPoses := currentPlayer.ChooseTrash(phase)
+				cardsTrashed = currentPlayer.TrashCards(trashPoses, &trash)
 			}
 			// you must trash card to get the draw bonus under the current rules
 			if (currentPlayer.Tableau.DrawBonus > 0) && (cardsTrashed > 0) {

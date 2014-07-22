@@ -33,6 +33,13 @@ var legalDiscardFrom = map[int] bool{
 	FromDiscard: false,
 }
 
+var legalTrashFrom = map[int] bool{
+	FromHand:	true,
+	FromStorage: true,
+	FromStock:	false,
+	FromDiscard: false,
+}
+
 // This represents the place you can get a card from
 type Pos struct {
 	From int
@@ -179,6 +186,7 @@ func (player Player) humanChooses(
 	choice := make(map[int] Pos) // keep track of what each choice points to
 
 	if passAllowed {
+		// TODO: use a verb appropriate to the action
 		fmt.Println("0 . no build")
 		choice[choiceId] = Pos{NoCard, 0}
 	}
@@ -309,6 +317,59 @@ func (player Player) HumanChooseDiscards(protected Pos, cost int) (discards []Po
 		cost, // selectCount
 	)
 }
+
+
+func (currentPlayer Player) ChooseTrash(phase int) (trashPos []Pos) {
+	if currentPlayer.Human {
+		return currentPlayer.humanChooses(
+			"to trash",
+			legalTrashFrom,
+			nil, // stock
+			nil, // discardPile
+			everythingIsAwesome,
+			true, // pass allowed
+			1, // selectCount
+		)
+
+	}
+
+	cardsTrashed := 0
+	for currentPlayer.Tableau.TrashBonus > cardsTrashed {
+		// Strategy would be you won't discard a card over a certain value
+		// and don't discard unless you get a draw, or you have too many cards
+		oneTrash, value := currentPlayer.LowestValueCard(phase, nil)
+
+		// if you're in the hand limit, don't trash if you have no draw bonus, 
+		// or if your lowest value card is still valuable
+		// outside of the hand limit, go ahead and trash
+		if currentPlayer.Hand.Count <= currentPlayer.Hand.Limit { 
+			if (currentPlayer.Tableau.DrawBonus == 0) || (value > 31) { // values are from 0-63
+				oneTrash.From = NoCard
+				trashPos[cardsTrashed] = oneTrash
+				break
+			}
+		}
+		cardsTrashed++
+	}
+	return
+}
+
+
+//TODO: attach player names to player object
+func (currentPlayer Player) TrashCards(Poses []Pos, trash *card.Hand) (count int) {
+	// if no cards to trash, or no cards of low enough value, get out
+	for _, pos := range Poses {
+		// if they chose none, just bail
+		if pos.From == NoCard {
+			break;
+	    }
+		fmt.Printf("Current player trashes %s", currentPlayer.CardByPos(pos))
+		currentPlayer.Spend(pos, trash)
+		count++
+	}
+	return
+}
+
 
 
 // TODO: I should be able to combine this routine with computerChooses, by passing in a "Playable function" 
