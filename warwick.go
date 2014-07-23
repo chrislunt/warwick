@@ -112,7 +112,6 @@ func store(storePower int, stock *card.Hand, discardPile *card.Hand, player *pla
 			storeCard := (*player).ChooseStore(stock, discardPile, phase)
 			log(1, fmt.Sprintf("Stored in storage %d: %s", spot, storeCard))
 			(*player).Tableau.Storage[spot] = storeCard
-			// TODO: you need to remove the card from its prior location
 		}
 	}
 }
@@ -313,7 +312,6 @@ func main() {
 				currentPlayer.Tableau.RemoveTop(card.Soldiers, &trash) // TODO: remove to trash, test if it works
 			}
 
-			// TODO: Human chooses cards to trash
 			// ------- TRASH --------- //
 			cardsTrashed := 0
 			// TrashBonus measures the amount of cards you can trash in order to draw a new one

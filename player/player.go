@@ -196,7 +196,6 @@ func (player Player) humanChooses(
 
 	clearScreen()
 	if passAllowed {
-		// TODO: use a verb appropriate to the action
 		fmt.Println("0 . no", verb)
 		choice[choiceId] = Pos{NoCard, 0}
 	}

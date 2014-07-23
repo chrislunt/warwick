@@ -171,7 +171,6 @@ type Tableau struct {
 	Storage [] *Card
 	Discounts []int
 	Fill int // keep track of how filled the tableau is
-	VictoryPoints int
 	BuildBonus int
 	DrawFromDiscardPower int
 	TrashBonus int
@@ -191,7 +190,6 @@ func (t Tableau)String() string{
 
 
 // remove the top card from that tableau stack, adding to the given hand
-// TODO: remove victory points
 func (tableau *Tableau) RemoveTop(kind int, hand *Hand) {
 	top := (*tableau).Stack[kind].PullPos
 	if hand != nil {
