@@ -112,6 +112,7 @@ func store(storePower int, stock *card.Hand, discardPile *card.Hand, player *pla
 			storeCard := (*player).ChooseStore(stock, discardPile, phase)
 			log(1, fmt.Sprintf("Stored in storage %d: %s", spot, storeCard))
 			(*player).Tableau.Storage[spot] = storeCard
+			// TODO: you need to remove the card from its prior location
 		}
 	}
 }

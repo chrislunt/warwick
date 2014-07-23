@@ -3,6 +3,8 @@ package player
 import (
 	"fmt"
 	"github.com/chrislunt/warwick/card"
+	"os"
+	"os/exec"
 )
 
 type Player struct {
@@ -170,11 +172,18 @@ func cardIsBuildable(pos Pos, thiscard card.Card, player Player) (buildable bool
 }
 
 
+func clearScreen() {
+	cmd := exec.Command("clear")
+    cmd.Stdout = os.Stdout
+    cmd.Run()
+}
+
+
 // Depending on the situation, the player may choose from his hand, cards in storage, the discard and the stock, or no card at all
 // So the selection is represented as where the card is coming from, and the position.
 // if you have to choose multiple cards, it will prevent you from choosing the same card twice
 func (player Player) humanChooses(
-	actionLabel string,
+	verb string,
 	allowedFrom map[int] bool, 
 	stock *card.Hand, 
 	discardPile *card.Hand, 
@@ -183,11 +192,12 @@ func (player Player) humanChooses(
 	selectCount int) (positions []Pos) {
 
 	choiceId := 0 // this is the number the human will key in to make their choice
-	choice := make(map[int] Pos) // keep track of what each choice points to
+	choice := make(map[int]Pos) // keep track of what each choice points to
 
+	clearScreen()
 	if passAllowed {
 		// TODO: use a verb appropriate to the action
-		fmt.Println("0 . no build")
+		fmt.Println("0 . no", verb)
 		choice[choiceId] = Pos{NoCard, 0}
 	}
 
@@ -240,35 +250,58 @@ func (player Player) humanChooses(
 		}
 	}
 
-	positions = make([]Pos, selectCount)
-	// TODO: can't select same number twice
-	// TODO: give a reset option in case they screw up
-	for i := 0; i < selectCount; i++ {
-		pos := queryPos(actionLabel, choice)
-		positions[i] = pos
-		if pos.From == NoCard {
-			return
-		}
+	// if they have more than one choice, offer them a redo option
+	if selectCount > 1 {
+		fmt.Println("9. I messed up")
 	}
 
+	positions = make([]Pos, selectCount)
+	// this outer "for" is to allow the user to restart their choice
+	for ;; {
+		i := 0
+		tempChoice := make(map[int]Pos)
+		// make a copy of the map, so we can remove elements as we go
+		for k, v := range choice {
+			tempChoice[k] = v
+		}
+		for ; i < selectCount; i++ {
+			pos, input := queryPos(verb, tempChoice)
+			if input == 9 {
+				fmt.Printf("Start over selecting your cards\n")
+				break; // if they get here, start over
+			}
+			positions[i] = pos
+			if pos.From == NoCard {
+				return
+			}
+			// remove that choice from the list so they can't select it again
+			delete(tempChoice, input)
+		}
+
+		if i == selectCount {
+			break; // if we got here they finished their selection
+		}
+	}
 	return
 }
 
 
-func queryPos(actionLabel string, choice map[int] Pos) (Pos) {
+func queryPos(verb string, choice map[int]Pos) (Pos, int) {
 	// loop until they select a valid response
 	for ;; {
-		fmt.Printf("Choose a card %s:\n", actionLabel)
+		fmt.Printf("Choose a card to %s:\n", verb)
 		var input int
 		fmt.Scan(&input)
 
-		// TODO: add ability to restart the current action
+		if input == 9 {
+			return Pos{}, 9
+		}
 
 		_, ok := choice[input] // check if the value given is in the choices
 		if !ok {
 			continue
 		}
-		return choice[input]
+		return choice[input], input
 	}
 }
 
@@ -543,7 +576,7 @@ func (player *Player) ChooseStore(stock *card.Hand, discardPile *card.Hand, phas
 
 	if pos.From == FromStock {
 		chosen = (*stock).Cards[(*stock).PullPos] // pull from the current pull position in the stock
-		(*stock).PullPos++ 
+		(*stock).PullPos--
 //		return player.CardByPos(pos)
 	} else if pos.From == FromDiscard {
 		chosen = (*discardPile).Cards[(*discardPile).PullPos]
