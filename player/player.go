@@ -2,6 +2,7 @@ package player
 
 import (
 	"fmt"
+	"strings"
 	"github.com/chrislunt/warwick/card"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ type Player struct {
 	Tableau *card.Tableau
 	Strategy [][][]int // the inputs are the turn, the card kind, and the card cost
 	Human bool
+	State string // when playing with a human, this give you a place to store the current state to share with the player
 }
 
 // These represent the places a player could choose cards from
@@ -62,8 +64,7 @@ func (player Player) PlayerChooses(allowedFrom map[int] bool, phase int) (pos Po
 	cost = 0
 	upgrade = false
 	if player.Human {
-		// TODO: if no build available, don't offer
-		choices := player.humanChooses("to build", allowedFrom, nil, nil, cardIsBuildable, true, 1) // stock, discardPile, checkBuildable, passAllowed, selectCount
+		choices := player.humanChooses("build", allowedFrom, nil, nil, cardIsBuildable, true, 1) // stock, discardPile, checkBuildable, passAllowed, selectCount
 		pos = choices[0] // you can only choose 1 card to build at a time
 		if pos.From == NoCard {
 			return
@@ -172,10 +173,11 @@ func cardIsBuildable(pos Pos, thiscard card.Card, player Player) (buildable bool
 }
 
 
-func clearScreen() {
+func (currentPlayer Player) clearScreen(state string) {
 	cmd := exec.Command("clear")
     cmd.Stdout = os.Stdout
     cmd.Run()
+    fmt.Printf(state)
 }
 
 
@@ -194,7 +196,8 @@ func (player Player) humanChooses(
 	choiceId := 0 // this is the number the human will key in to make their choice
 	choice := make(map[int]Pos) // keep track of what each choice points to
 
-	clearScreen()
+	player.clearScreen(player.State)
+	fmt.Println("-=* ", strings.ToUpper(verb), " *=-")
 	if passAllowed {
 		fmt.Println("0 . no", verb)
 		choice[choiceId] = Pos{NoCard, 0}
@@ -204,7 +207,6 @@ func (player Player) humanChooses(
 
 	location := "" // for telling people where they're playing from
 	var cardrange []*card.Card
-// TODO: if there is no choice, don't ask, , or if there is a one card cost and there is only one card
 	for space := 1; space <= 4; space++ {
 		if !allowedFrom[space] {
 			continue
@@ -251,10 +253,20 @@ func (player Player) humanChooses(
 
 	// if they have more than one choice, offer them a redo option
 	if selectCount > 1 {
-		fmt.Println("9. I messed up")
+		fmt.Printf("9. I messed up\nChoose %d\n", selectCount)
 	}
 
 	positions = make([]Pos, selectCount)
+
+	if choiceId == 1 {
+		// they don't really have a choice, just select 0: no card for them
+		return
+	}
+	if choiceId == 2 && selectCount == 1 && !passAllowed {
+		// there's only one choice, so just make it for them
+		positions[0] = choice[1]
+		return
+	}
 	// this outer "for" is to allow the user to restart their choice
 	for ;; {
 		i := 0
@@ -340,7 +352,7 @@ func (player Player) HumanChooseDiscards(protected Pos, cost int) (discards []Po
 		}
 	}
 	return player.humanChooses(
-		"to discard",
+		"discard",
 		legalDiscardFrom, 
 		nil, // stock
 		nil, // discardPile
@@ -354,7 +366,7 @@ func (player Player) HumanChooseDiscards(protected Pos, cost int) (discards []Po
 func (currentPlayer Player) ChooseTrash(phase int) (trashPos []Pos) {
 	if currentPlayer.Human {
 		return currentPlayer.humanChooses(
-			"to trash",
+			"trash",
 			legalTrashFrom,
 			nil, // stock
 			nil, // discardPile
@@ -366,6 +378,7 @@ func (currentPlayer Player) ChooseTrash(phase int) (trashPos []Pos) {
 	}
 
 	cardsTrashed := 0
+	trashPos = make([]Pos, currentPlayer.Tableau.TrashBonus)
 	for currentPlayer.Tableau.TrashBonus > cardsTrashed {
 		// Strategy would be you won't discard a card over a certain value
 		// and don't discard unless you get a draw, or you have too many cards
@@ -395,7 +408,7 @@ func (currentPlayer Player) TrashCards(Poses []Pos, trash *card.Hand) (count int
 		if pos.From == NoCard {
 			break;
 	    }
-		fmt.Printf("Current player trashes %s", currentPlayer.CardByPos(pos))
+		fmt.Printf("Current player trashes %s\n", currentPlayer.CardByPos(pos))
 		currentPlayer.Spend(pos, trash)
 		count++
 	}
@@ -593,7 +606,7 @@ func (player *Player) ChooseStore(stock *card.Hand, discardPile *card.Hand, phas
 // Choose from the hand, stock and discard pile, remove the card from the source, and pass it back
 func (player *Player) humanChooseStore(stock *card.Hand, discardPile *card.Hand) (pos Pos) {
 	fmt.Println("You may store a card.  Please choose:")
-	choices := (*player).humanChooses("to store", legalStoreFrom, stock, discardPile, everythingIsAwesome, false, 1)
+	choices := (*player).humanChooses("store", legalStoreFrom, stock, discardPile, everythingIsAwesome, false, 1)
 	pos = choices[0] // you can only choose 1
 	return
 }
@@ -771,7 +784,7 @@ func (currentPlayer *Player) Draw(discardPile *card.Hand, stock *card.Hand, phas
 			}
 
        	} else if (*currentPlayer).CardValue(discardPile.Cards[discardPile.PullPos], phase) > 31 {
-   			fmt.Sprintf("Player draws %s from the discard", discardPile.Cards[discardPile.PullPos])
+   			fmt.Printf("Player draws %s from the discard\n", discardPile.Cards[discardPile.PullPos])
    			discardPile.TopPull(1, (*currentPlayer).Hand)
         } else {
         	stock.RandomPull(1, (*currentPlayer).Hand)

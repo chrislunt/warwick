@@ -182,7 +182,7 @@ func (t Tableau)String() string{
 	var output string
 	for i := 0; i < 10; i++ {
 		if t.Stack[i] != nil {
-			output += fmt.Sprintf("\n  %s:\t%s", cardType[i], t.Stack[i].Cards[t.Stack[i].PullPos])
+			output += fmt.Sprintf("%s:\t%s\n", cardType[i], t.Stack[i].Cards[t.Stack[i].PullPos])
 		}
 	}
 	return output
@@ -292,4 +292,6 @@ var TestStock = [][]int{
 		 36, 10,  20, 21, // watch, archers
 		 37, 38,  11, 12, // archers, militia
 		 39},             // knights
+	4: {3, 7, 11, 15, 19, 5, 6, 8, 9, 10, 23, 27}, // NO BUILD OPTION:  On your second turn, you won't be able to build
+	5: {3, 7, 11, 15, 19, 5, 6, 8, 9, 10, 24, 28}, // ONLY ONE DISCARD: on your second turn, it should choose discard for you
 }

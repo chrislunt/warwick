@@ -132,7 +132,7 @@ func buildStock() (stock card.Hand, stockSize int) {
 		which has an up-front randomization cost, but all subsequent pulls are cheap.  
 	*/
 	// TODO make this a parameter
-	testStockId := -1
+	testStockId := 5
 	var permutation []int
 	if testStockId != -1 {
 		/* rather than having to specify the whole deck, I allow you to only specify the top of the deck */
@@ -195,6 +195,7 @@ func main() {
 		players[id].Tableau.AttackBonus = 0
 		players[id].Tableau.Storage = make([] *card.Card, 2)
 		players[id].Human = false
+		players[id].State = "Turn 1:\n"
 
 		// the player strategy should be loaded from somewhere.  For now, set it all to 32
 		// instead of 1 value per turn, do 3 columns for beginning, middle and end.
@@ -238,6 +239,10 @@ func main() {
 			} else {
 				opponent = players[0]
 			}
+			// we keep track of messages to send to the Human player
+			if opponent.Human {
+				players[0].State = fmt.Sprintf("Turn: %d\n", turnCount + 2)
+			}
 
 			// if we're coming back to this player and they already have 9 cards, it's time to stop
 			if currentPlayer.Tableau.Fill == 9 {
@@ -255,7 +260,7 @@ func main() {
 			// determine discards
 			// do build
 //			log(2, fmt.Sprintf("Player %d hand: %s", id, currentPlayer.Hand))
-			log(2, fmt.Sprintf("Player %d Tableau: %s", id, currentPlayer.Tableau))
+//			log(2, fmt.Sprintf("Player %d Tableau: %s", id, currentPlayer.Tableau))
 
 			builds := 0
 
@@ -306,7 +311,10 @@ func main() {
 			// ------ Attack --------- //
 			steal := currentPlayer.ChooseAttack(opponent, phase) // steal is a card kind
 			if steal != -1 {
-				log(1, fmt.Sprintf("Player %d uses %s and takes opponent's %s", id, currentPlayer.TopCard(card.Soldiers), opponent.TopCard(steal)))
+//				log(1, fmt.Sprintf("Player %d uses %s and takes opponent's %s", id, currentPlayer.TopCard(card.Soldiers), opponent.TopCard(steal)))
+				if opponent.Human{
+					players[0].State += fmt.Sprintf("ALERT: Opponent used a %s to take your %s\n", currentPlayer.TopCard(card.Soldiers), opponent.TopCard(steal))
+				}
 				opponent.Tableau.RemoveTop(steal, currentPlayer.Hand) 
 				// then loose your attack card
 				currentPlayer.Tableau.RemoveTop(card.Soldiers, &trash) // TODO: remove to trash, test if it works
@@ -337,6 +345,12 @@ func main() {
 		    	currentPlayer.Hand.RemoveCard(trashPos.Index, &trash)
 		    }
 
+		    // if a human is playing record the state to share with them at the beginning of their turn
+		    // this assumes the human always goes first
+		    if opponent.Human {
+	    		players[0].State += fmt.Sprintf("Opponent Tableau:\n%s\n", currentPlayer.Tableau)
+		    	players[0].State += fmt.Sprintf("Your Tableau:\n%s\n", opponent.Tableau)
+		    }
 		}
 	    fmt.Println("----END OF TURN----")
 	}
