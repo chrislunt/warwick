@@ -132,7 +132,7 @@ func buildStock() (stock card.Hand, stockSize int) {
 		which has an up-front randomization cost, but all subsequent pulls are cheap.  
 	*/
 	// TODO make this a parameter
-	testStockId := 5
+	testStockId := -1
 	var permutation []int
 	if testStockId != -1 {
 		/* rather than having to specify the whole deck, I allow you to only specify the top of the deck */
